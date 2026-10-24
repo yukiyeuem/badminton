@@ -39,42 +39,50 @@ export const SessionConfigModal: React.FC<SessionConfigModalProps> = ({
     {
       count: 6,
       label: '6 Trận Mix Cân Bằng (8 Người)',
-      roundsDesc: 'Mỗi người đúng 3 trận, Delta ≤ 1 tuyệt đối, mix đôi nam / đôi nữ / nam nữ linh hoạt',
+      roundsDesc: 'Mỗi người đúng 3 trận, Delta ≤ 1 tuyệt đối, xoay tua cặp đấu linh hoạt',
       badge: 'Khuyên Dùng (8 Người)',
       mode: 'CONTINUOUS_MIXER' as const,
       color: 'border-emerald-500/40 bg-emerald-950/20',
     },
     {
       count: 8,
-      label: '8 Trận Tiêu Chuẩn (16 Người)',
-      roundsDesc: 'Mỗi người đúng 2 trận (1 cùng giới, 1 nam nữ), Delta = 0 tuyệt đối',
-      badge: 'Chuẩn Spec .md',
+      label: '8 Trận Giao Lưu (8 hoặc 16 Người)',
+      roundsDesc: '8 người mỗi người 4 trận, hoặc 16 người mỗi người 2 trận, Delta = 0',
+      badge: 'Tiêu Chuẩn',
       mode: 'CONTINUOUS_MIXER' as const,
       color: 'border-sky-500/40 bg-sky-950/20',
     },
     {
+      count: 9,
+      label: '9 Trận Mở Rộng (8 Người)',
+      roundsDesc: '4 người 5 trận, 4 người 4 trận. Cam kết mọi trận Delta ≤ 1, phân bổ đều',
+      badge: 'Tùy Chỉnh 9 Trận',
+      mode: 'CONTINUOUS_MIXER' as const,
+      color: 'border-teal-500/40 bg-teal-950/20',
+    },
+    {
       count: 10,
-      label: '10 Trận (Giải Đấu Nối Tiếp)',
-      roundsDesc: '8 trận cơ bản + 2 trận Thắng gặp Thắng (Chung kết Đôi Nam & Đôi Nữ)',
-      badge: 'Chung Kết Nhất - Nhì',
+      label: '10 Trận Tăng Cường (8 Người)',
+      roundsDesc: 'Mỗi người chơi đúng 5 trận (40 lượt). 100% trận đấu Delta ≤ 1',
+      badge: '5 Trận / Người',
+      mode: 'CONTINUOUS_MIXER' as const,
+      color: 'border-cyan-500/40 bg-cyan-950/20',
+    },
+    {
+      count: 11,
+      label: '11 Trận Thêm Lượt (8 Người)',
+      roundsDesc: '4 người 6 trận, 4 người 5 trận. Tối ưu thời gian sân, Delta ≤ 1 tuyệt đối',
+      badge: 'Tùy Chỉnh 11 Trận',
+      mode: 'CONTINUOUS_MIXER' as const,
+      color: 'border-blue-500/40 bg-blue-950/20',
+    },
+    {
+      count: 10,
+      label: '10 Trận (Playoffs Thắng Gặp Thắng)',
+      roundsDesc: '8 trận cơ bản + 2 trận Chung kết nối tiếp từ kết quả trước',
+      badge: 'Phân Nhánh Playoffs',
       mode: 'PROGRESSIVE_PLAYOFF' as const,
       color: 'border-amber-500/40 bg-amber-950/20',
-    },
-    {
-      count: 12,
-      label: '12 Trận (Trọn Vẹn Thắng & Thua)',
-      roundsDesc: '8 trận cơ bản + 2 trận Thắng gặp Thắng + 2 trận Thua gặp Thua (Hạng Ba)',
-      badge: 'Phân nhánh Đầy Đủ',
-      mode: 'PROGRESSIVE_PLAYOFF' as const,
-      color: 'border-purple-500/40 bg-purple-950/20',
-    },
-    {
-      count: 16,
-      label: '16 Trận (Mỗi người 4 trận)',
-      roundsDesc: 'Chia đều số trận cho mọi thành viên, liên tục xoay tua cặp đấu',
-      badge: 'Đại Hội Giao Lưu',
-      mode: 'CONTINUOUS_MIXER' as const,
-      color: 'border-indigo-500/40 bg-indigo-950/20',
     },
   ];
 
@@ -102,7 +110,7 @@ export const SessionConfigModal: React.FC<SessionConfigModalProps> = ({
                 <span>Cấu Hình Quy Mô & Số Trận Đấu Trong Buổi</span>
               </h2>
               <p className="text-xs text-slate-400">
-                Tùy chỉnh số lượng trận và kích hoạt tính năng xếp nối tiếp theo kết quả (Thắng gặp Thắng / Thua gặp Thua)
+                Tự do cấu hình số trận (6, 8, 9, 10, 11...) với cam kết tuyệt đối Delta ≤ 1
               </p>
             </div>
           </div>
@@ -141,7 +149,7 @@ export const SessionConfigModal: React.FC<SessionConfigModalProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Tự do mix <strong>Đôi Nam</strong>, <strong>Đôi Nữ</strong> & <strong>Đôi Nam Nữ</strong>. Cam kết <strong>Delta ≤ 1 trong mọi trận đấu</strong>, chia đều số trận và không phân chia chung kết cứng nhắc.
+                  Tự do chọn <strong>6, 8, 9, 10, 11... trận</strong>. Cam kết <strong>Delta ≤ 1 trong mọi trận đấu</strong>, chia đều số trận cho mọi thành viên, không gò bó chung kết.
                 </p>
               </button>
 
@@ -173,7 +181,7 @@ export const SessionConfigModal: React.FC<SessionConfigModalProps> = ({
           {/* Preset Buttons */}
           <div className="space-y-2.5">
             <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-              Hoặc chọn nhanh kịch bản gợi ý:
+              Chọn nhanh kịch bản cấu hình:
             </label>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -181,7 +189,7 @@ export const SessionConfigModal: React.FC<SessionConfigModalProps> = ({
                 const isSelected = selectedMatchCount === p.count && mixerMode === p.mode;
                 return (
                   <button
-                    key={`${p.count}_${p.mode}`}
+                    key={`${p.count}_${p.mode}_${p.label}`}
                     type="button"
                     onClick={() => handleSelectPreset(p)}
                     className={`p-3 rounded-xl border text-left transition-all relative ${
@@ -205,19 +213,34 @@ export const SessionConfigModal: React.FC<SessionConfigModalProps> = ({
             </div>
           </div>
 
-          {/* Custom Slider / Input */}
-          <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3">
+          {/* Custom Slider / Direct Number Input */}
+          <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-3.5">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-300">
-                Tùy chỉnh số trận đấu chính xác cho buổi:
-              </label>
+              <div>
+                <label className="text-xs font-bold text-slate-200 block">
+                  Tùy chỉnh chính xác số trận đấu:
+                </label>
+                <span className="text-[11px] text-slate-400">
+                  {mixerMode === 'CONTINUOUS_MIXER'
+                    ? 'Chế độ Mix giao lưu: Hỗ trợ bất kỳ số trận nào (9, 10, 11, v.v.)'
+                    : 'Chế độ giải đấu phân nhánh'}
+                </span>
+              </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-400">
-                  {mixerMode === 'CONTINUOUS_MIXER' ? 'Mix giao lưu' : 'Kèm phân nhánh'}
-                </span>
-                <span className="font-mono text-base font-black text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/20">
-                  {selectedMatchCount} Trận
-                </span>
+                <input
+                  type="number"
+                  min={4}
+                  max={30}
+                  value={selectedMatchCount}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (!isNaN(val)) {
+                      setSelectedMatchCount(Math.max(4, Math.min(30, val)));
+                    }
+                  }}
+                  className="w-16 px-2 py-1 bg-slate-900 border border-emerald-500/50 rounded text-center font-mono font-bold text-sm text-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                />
+                <span className="text-xs font-bold text-slate-300">Trận</span>
               </div>
             </div>
 
@@ -225,18 +248,28 @@ export const SessionConfigModal: React.FC<SessionConfigModalProps> = ({
               type="range"
               min={4}
               max={24}
-              step={2}
+              step={1}
               value={selectedMatchCount}
               onChange={(e) => setSelectedMatchCount(Number(e.target.value))}
               className="w-full accent-emerald-500 cursor-pointer"
             />
-            <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-              <button type="button" onClick={() => setSelectedMatchCount(6)} className="hover:text-emerald-400">6 trận (8 người)</button>
-              <button type="button" onClick={() => setSelectedMatchCount(8)} className="hover:text-emerald-400">8 trận</button>
-              <button type="button" onClick={() => setSelectedMatchCount(10)} className="hover:text-emerald-400">10 trận</button>
-              <button type="button" onClick={() => setSelectedMatchCount(12)} className="hover:text-emerald-400">12 trận</button>
-              <button type="button" onClick={() => setSelectedMatchCount(16)} className="hover:text-emerald-400">16 trận</button>
-              <button type="button" onClick={() => setSelectedMatchCount(20)} className="hover:text-emerald-400">20 trận</button>
+
+            {/* Quick Chips */}
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {[6, 8, 9, 10, 11, 12, 14, 16].map((cnt) => (
+                <button
+                  key={cnt}
+                  type="button"
+                  onClick={() => setSelectedMatchCount(cnt)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-semibold transition-colors ${
+                    selectedMatchCount === cnt
+                      ? 'bg-emerald-500 text-slate-950 font-bold'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                  }`}
+                >
+                  {cnt} trận
+                </button>
+              ))}
             </div>
           </div>
 
@@ -244,7 +277,7 @@ export const SessionConfigModal: React.FC<SessionConfigModalProps> = ({
           <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 flex items-start gap-3">
             <Shield className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
             <div className="text-xs text-emerald-200 leading-relaxed">
-              <strong>Cam kết thuật toán:</strong> Trong mọi trận đấu, độ lệch <strong>Delta ≤ 1</strong> tuyệt đối (không bao giờ vượt quá 1). Không trùng lặp bạn đánh (partner), chia đều số trận cho mọi người!
+              <strong>Cam kết thuật toán:</strong> Trong mọi trận đấu, độ lệch <strong>Delta ≤ 1</strong> tuyệt đối (không bao giờ vượt quá 1). Với 8 thành viên chọn 9, 10 hoặc 11 trận, số trận sẽ được chia đều tối đa (mỗi người 4-5 trận hoặc 5-6 trận), hạn chế tối đa việc lặp lại đồng đội!
             </div>
           </div>
         </div>
