@@ -19,6 +19,7 @@
    - **Lượt 2 (Mixed Doubles):** Đôi Nam Nữ hoàn toàn đổi mới partner.
 
 4. **Tính năng mở rộng:**
+   - **Mở rộng số trận & Phân nhánh Thắng/Thua (Progressive Playoffs):** Tùy chọn 8, 10, 12, 16... trận cho buổi chơi. Các trận sau tự động lấy kết quả từ các trận trước đó: Đôi thắng gặp Đôi thắng (tranh Vô địch), Đôi thua gặp Đôi thua (tranh Hạng Ba / cọ xát).
    - **Nhập file Excel (.xlsx / .xls / .csv):** Kéo thả hoặc tải file Excel chứa Họ tên, Giới tính, Trình độ; tự động nhận diện header và phân tích điểm để xếp trận.
    - **Tải file mẫu Excel (.xlsx):** Cung cấp sẵn file mẫu chuẩn để câu lạc bộ điền danh sách nhanh chóng.
    - **Điền / Dán danh sách nhóm nhanh (Bulk Import):** Hỗ trợ dán text nhiều dòng hoặc nhập theo hàng bảng.

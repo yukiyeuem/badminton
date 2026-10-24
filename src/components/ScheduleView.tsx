@@ -12,21 +12,26 @@ import {
   Filter,
   Plus,
   Minus,
+  Sliders,
+  Swords,
+  Medal,
+  AlertCircle,
 } from 'lucide-react';
 
 interface ScheduleViewProps {
   matches: Match[];
   players: Player[];
   onUpdateMatchScore: (matchId: string, gameScoreA: number, gameScoreB: number, status?: Match['status']) => void;
-  onSwapTeams?: (matchId: string) => void;
+  onOpenSessionConfig?: () => void;
 }
 
 export const ScheduleView: React.FC<ScheduleViewProps> = ({
   matches,
   players,
   onUpdateMatchScore,
+  onOpenSessionConfig,
 }) => {
-  const [selectedPhase, setSelectedPhase] = useState<'ALL' | 1 | 2>('ALL');
+  const [selectedPhase, setSelectedPhase] = useState<'ALL' | number>('ALL');
   const [selectedCourt, setSelectedCourt] = useState<'ALL' | number>('ALL');
   const [copied, setCopied] = useState(false);
 
@@ -42,20 +47,25 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
 
   const phase1Matches = matches.filter((m) => m.phase === 1);
   const phase2Matches = matches.filter((m) => m.phase === 2);
+  const playoffMatches = matches.filter((m) => m.phase >= 3);
 
   const handleCopySchedule = () => {
     let text = `🏸 LỊCH THI ĐẤU CẦU LÔNG - BADMINTON MATCHMAKER\n`;
     text += `Tổng số trận: ${matches.length} | Người chơi: ${players.length}\n\n`;
 
     matches.forEach((m, idx) => {
-      const p1 = playerMap.get(m.teamA[0])?.name || m.teamA[0];
-      const p2 = playerMap.get(m.teamA[1])?.name || m.teamA[1];
-      const p3 = playerMap.get(m.teamB[0])?.name || m.teamB[0];
-      const p4 = playerMap.get(m.teamB[1])?.name || m.teamB[1];
-      text += `Trận ${idx + 1} [${m.type === 'MIXED_DOUBLE' ? 'Đôi Nam Nữ' : m.type === 'MENS_DOUBLE' ? 'Đôi Nam' : 'Đôi Nữ'}] (Sân ${m.courtNumber || 1}):\n`;
-      text += `  Đội A (${m.scoreA}đ): ${p1} & ${p2}\n`;
+      const p1 = playerMap.get(m.teamA[0])?.name || m.sourceMatchA?.matchLabel || 'Chưa xác định';
+      const p2 = playerMap.get(m.teamA[1])?.name || '';
+      const p3 = playerMap.get(m.teamB[0])?.name || m.sourceMatchB?.matchLabel || 'Chưa xác định';
+      const p4 = playerMap.get(m.teamB[1])?.name || '';
+
+      const teamAStr = p2 ? `${p1} & ${p2}` : p1;
+      const teamBStr = p4 ? `${p3} & ${p4}` : p3;
+
+      text += `Trận ${idx + 1} [${m.type === 'MIXED_DOUBLE' ? 'Đôi Nam Nữ' : m.type === 'MENS_DOUBLE' ? 'Đôi Nam' : 'Đôi Nữ'}] (Sân ${m.courtNumber || 1}) - ${m.phaseLabel}:\n`;
+      text += `  Đội A (${m.scoreA}đ): ${teamAStr}\n`;
       text += `  VS\n`;
-      text += `  Đội B (${m.scoreB}đ): ${p3} & ${p4}\n`;
+      text += `  Đội B (${m.scoreB}đ): ${teamBStr}\n`;
       text += `  Delta: ${m.delta}đ\n\n`;
     });
 
@@ -72,6 +82,8 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
         return { label: 'Đôi Nữ', color: 'bg-rose-500/10 text-rose-400 border-rose-500/30' };
       case 'MIXED_DOUBLE':
         return { label: 'Đôi Nam Nữ (Mix)', color: 'bg-purple-500/10 text-purple-400 border-purple-500/30' };
+      default:
+        return { label: 'Đôi Giao Lưu', color: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' };
     }
   };
 
@@ -114,10 +126,34 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           >
             Lượt 2: Nam Nữ ({phase2Matches.length})
           </button>
+          {playoffMatches.length > 0 && (
+            <button
+              onClick={() => setSelectedPhase(3)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                selectedPhase === 3
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-slate-800 text-amber-300 hover:text-amber-200'
+              }`}
+            >
+              <Trophy className="w-3 h-3 text-amber-400" />
+              <span>Phân Hạng Thắng/Thua ({playoffMatches.length})</span>
+            </button>
+          )}
         </div>
 
-        {/* Export / Share */}
+        {/* Action Controls */}
         <div className="flex items-center gap-2">
+          {onOpenSessionConfig && (
+            <button
+              onClick={onOpenSessionConfig}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700/30 hover:bg-emerald-700/50 border border-emerald-500/40 text-xs text-emerald-300 font-semibold transition-colors"
+              title="Mở rộng số trận đấu trong buổi (8, 10, 12, 16 trận) và xếp tiếp từ kết quả"
+            >
+              <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Cấu hình số trận ({matches.length})</span>
+            </button>
+          )}
+
           <button
             onClick={handleCopySchedule}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 font-medium transition-colors"
@@ -146,6 +182,10 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           const pB1 = playerMap.get(m.teamB[0]);
           const pB2 = playerMap.get(m.teamB[1]);
 
+          const isPlayoff = !!(m.sourceMatchA || m.sourceMatchB || m.phase >= 3);
+          const isPendingA = !pA1 && !!m.sourceMatchA;
+          const isPendingB = !pB1 && !!m.sourceMatchB;
+
           const rankA1 = pA1 ? getRankDefinitionByScore(pA1.rankScore) : null;
           const rankA2 = pA2 ? getRankDefinitionByScore(pA2.rankScore) : null;
           const rankB1 = pB1 ? getRankDefinitionByScore(pB1.rankScore) : null;
@@ -159,7 +199,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             <div
               key={m.matchId}
               className={`relative bg-slate-900/90 rounded-2xl border transition-all duration-200 overflow-hidden shadow-lg ${
-                m.delta === 0
+                isPlayoff
+                  ? m.stage === 'WINNER_BRACKET'
+                    ? 'border-amber-500/50 hover:border-amber-500/80 bg-gradient-to-b from-amber-950/20 to-slate-900/90'
+                    : 'border-purple-500/40 hover:border-purple-500/70 bg-gradient-to-b from-purple-950/20 to-slate-900/90'
+                  : m.delta === 0
                   ? 'border-emerald-500/40 hover:border-emerald-500/70'
                   : 'border-slate-800 hover:border-slate-700'
               }`}
@@ -167,7 +211,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
               {/* Header Strip */}
               <div className="flex items-center justify-between px-5 py-3 border-b border-slate-800/80 bg-slate-950/50">
                 <div className="flex items-center gap-2.5">
-                  <span className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center font-bold text-xs font-mono">
+                  <span className={`w-7 h-7 rounded-lg border flex items-center justify-center font-bold text-xs font-mono ${
+                    isPlayoff
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                  }`}>
                     #{index + 1}
                   </span>
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${typeInfo.color}`}>
@@ -179,18 +227,41 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    Lượt {m.phase}
-                  </span>
-                  {m.delta === 0 ? (
-                    <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                      Δ = 0 (Hoàn hảo)
+                  {isPlayoff ? (
+                    <span className={`flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border ${
+                      m.stage === 'WINNER_BRACKET'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                    }`}>
+                      {m.stage === 'WINNER_BRACKET' ? (
+                        <>
+                          <Trophy className="w-3 h-3 text-amber-400" />
+                          <span>Chung Kết (Thắng gặp Thắng)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Medal className="w-3 h-3 text-purple-400" />
+                          <span>Hạng Ba (Thua gặp Thua)</span>
+                        </>
+                      )}
                     </span>
                   ) : (
-                    <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                      Δ = {m.delta}
+                    <span className="text-[11px] text-slate-400 font-mono">
+                      Lượt {m.phase}
                     </span>
+                  )}
+
+                  {!isPendingA && !isPendingB && (
+                    m.delta === 0 ? (
+                      <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                        Δ = 0
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                        Δ = {m.delta}
+                      </span>
+                    )
                   )}
                 </div>
               </div>
@@ -205,63 +276,77 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                       : 'bg-slate-950/60 border-slate-800'
                   }`}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                        Đội A
-                      </span>
-                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                        {m.scoreA}đ
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      {/* Player A1 */}
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className="text-slate-400 text-[10px]">
-                            {pA1?.gender === 'MALE' ? '♂' : '♀'}
-                          </span>
-                          <span className="font-medium text-slate-200 truncate">
-                            {pA1?.name || m.teamA[0]}
-                          </span>
-                        </div>
-                        {rankA1 && (
-                          <span
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
-                            style={{
-                              backgroundColor: rankA1.bgLight,
-                              color: rankA1.color,
-                              borderColor: rankA1.borderLight,
-                            }}
-                          >
-                            {rankA1.shortLabel} ({rankA1.score}đ)
+                      <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1">
+                        <span>Đội A</span>
+                        {m.sourceMatchA && (
+                          <span className="text-[9px] lowercase font-normal px-1 py-0.2 rounded bg-slate-800 text-slate-300">
+                            ({m.sourceMatchA.matchLabel})
                           </span>
                         )}
-                      </div>
-
-                      {/* Player A2 */}
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className="text-slate-400 text-[10px]">
-                            {pA2?.gender === 'MALE' ? '♂' : '♀'}
-                          </span>
-                          <span className="font-medium text-slate-200 truncate">
-                            {pA2?.name || m.teamA[1]}
-                          </span>
-                        </div>
-                        {rankA2 && (
-                          <span
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
-                            style={{
-                              backgroundColor: rankA2.bgLight,
-                              color: rankA2.color,
-                              borderColor: rankA2.borderLight,
-                            }}
-                          >
-                            {rankA2.shortLabel} ({rankA2.score}đ)
-                          </span>
-                        )}
-                      </div>
+                      </span>
+                      {!isPendingA && (
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                          {m.scoreA}đ
+                        </span>
+                      )}
                     </div>
+
+                    {isPendingA ? (
+                      <div className="py-3 text-center text-xs text-amber-400/90 font-medium border border-dashed border-amber-500/30 rounded-lg bg-amber-950/20">
+                        <Clock className="w-4 h-4 mx-auto mb-1 text-amber-400 animate-pulse" />
+                        <span>Đang chờ: {m.sourceMatchA?.matchLabel}</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {/* Player A1 */}
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="text-slate-400 text-[10px]">
+                              {pA1?.gender === 'MALE' ? '♂' : '♀'}
+                            </span>
+                            <span className="font-medium text-slate-200 truncate">
+                              {pA1?.name || m.teamA[0]}
+                            </span>
+                          </div>
+                          {rankA1 && (
+                            <span
+                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+                              style={{
+                                backgroundColor: rankA1.bgLight,
+                                color: rankA1.color,
+                                borderColor: rankA1.borderLight,
+                              }}
+                            >
+                              {rankA1.shortLabel} ({rankA1.score}đ)
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Player A2 */}
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="text-slate-400 text-[10px]">
+                              {pA2?.gender === 'MALE' ? '♂' : '♀'}
+                            </span>
+                            <span className="font-medium text-slate-200 truncate">
+                              {pA2?.name || m.teamA[1]}
+                            </span>
+                          </div>
+                          {rankA2 && (
+                            <span
+                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+                              style={{
+                                backgroundColor: rankA2.bgLight,
+                                color: rankA2.color,
+                                borderColor: rankA2.borderLight,
+                              }}
+                            >
+                              {rankA2.shortLabel} ({rankA2.score}đ)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* VS Middle (1 col) */}
@@ -278,63 +363,77 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                       : 'bg-slate-950/60 border-slate-800'
                   }`}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">
-                        Đội B
-                      </span>
-                      <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
-                        {m.scoreB}đ
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      {/* Player B1 */}
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className="text-slate-400 text-[10px]">
-                            {pB1?.gender === 'MALE' ? '♂' : '♀'}
-                          </span>
-                          <span className="font-medium text-slate-200 truncate">
-                            {pB1?.name || m.teamB[0]}
-                          </span>
-                        </div>
-                        {rankB1 && (
-                          <span
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
-                            style={{
-                              backgroundColor: rankB1.bgLight,
-                              color: rankB1.color,
-                              borderColor: rankB1.borderLight,
-                            }}
-                          >
-                            {rankB1.shortLabel} ({rankB1.score}đ)
+                      <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1">
+                        <span>Đội B</span>
+                        {m.sourceMatchB && (
+                          <span className="text-[9px] lowercase font-normal px-1 py-0.2 rounded bg-slate-800 text-slate-300">
+                            ({m.sourceMatchB.matchLabel})
                           </span>
                         )}
-                      </div>
-
-                      {/* Player B2 */}
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-1.5 truncate">
-                          <span className="text-slate-400 text-[10px]">
-                            {pB2?.gender === 'MALE' ? '♂' : '♀'}
-                          </span>
-                          <span className="font-medium text-slate-200 truncate">
-                            {pB2?.name || m.teamB[1]}
-                          </span>
-                        </div>
-                        {rankB2 && (
-                          <span
-                            className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
-                            style={{
-                              backgroundColor: rankB2.bgLight,
-                              color: rankB2.color,
-                              borderColor: rankB2.borderLight,
-                            }}
-                          >
-                            {rankB2.shortLabel} ({rankB2.score}đ)
-                          </span>
-                        )}
-                      </div>
+                      </span>
+                      {!isPendingB && (
+                        <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                          {m.scoreB}đ
+                        </span>
+                      )}
                     </div>
+
+                    {isPendingB ? (
+                      <div className="py-3 text-center text-xs text-amber-400/90 font-medium border border-dashed border-amber-500/30 rounded-lg bg-amber-950/20">
+                        <Clock className="w-4 h-4 mx-auto mb-1 text-amber-400 animate-pulse" />
+                        <span>Đang chờ: {m.sourceMatchB?.matchLabel}</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {/* Player B1 */}
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="text-slate-400 text-[10px]">
+                              {pB1?.gender === 'MALE' ? '♂' : '♀'}
+                            </span>
+                            <span className="font-medium text-slate-200 truncate">
+                              {pB1?.name || m.teamB[0]}
+                            </span>
+                          </div>
+                          {rankB1 && (
+                            <span
+                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+                              style={{
+                                backgroundColor: rankB1.bgLight,
+                                color: rankB1.color,
+                                borderColor: rankB1.borderLight,
+                              }}
+                            >
+                              {rankB1.shortLabel} ({rankB1.score}đ)
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Player B2 */}
+                        <div className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span className="text-slate-400 text-[10px]">
+                              {pB2?.gender === 'MALE' ? '♂' : '♀'}
+                            </span>
+                            <span className="font-medium text-slate-200 truncate">
+                              {pB2?.name || m.teamB[1]}
+                            </span>
+                          </div>
+                          {rankB2 && (
+                            <span
+                              className="text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0"
+                              style={{
+                                backgroundColor: rankB2.bgLight,
+                                color: rankB2.color,
+                                borderColor: rankB2.borderLight,
+                              }}
+                            >
+                              {rankB2.shortLabel} ({rankB2.score}đ)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 

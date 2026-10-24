@@ -104,6 +104,7 @@ export interface Pair {
  * 3.2. Match Object (from spec)
  */
 export type MatchType = 'MENS_DOUBLE' | 'WOMENS_DOUBLE' | 'MIXED_DOUBLE';
+export type MatchStage = 'ROUND_ROBIN' | 'WINNER_BRACKET' | 'LOSER_BRACKET' | 'CHALLENGE' | 'CUSTOM';
 
 export interface Match {
   matchId: string;
@@ -113,7 +114,7 @@ export interface Match {
   delta: number; // |TotalA - TotalB|
   scoreA: number;
   scoreB: number;
-  phase: 1 | 2 | number;
+  phase: 1 | 2 | 3 | 4 | number;
   phaseLabel: string;
   roundNumber: number;
   courtNumber?: number;
@@ -122,6 +123,20 @@ export interface Match {
   gameScoreB?: number;
   winner?: 'teamA' | 'teamB';
   notes?: string;
+  stage?: MatchStage;
+  // Dynamic progression tracking:
+  sourceMatchA?: {
+    matchId: string;
+    matchIndex: number;
+    matchLabel: string;
+    condition: 'WINNER' | 'LOSER';
+  };
+  sourceMatchB?: {
+    matchId: string;
+    matchIndex: number;
+    matchLabel: string;
+    condition: 'WINNER' | 'LOSER';
+  };
 }
 
 export interface MatchmakingResult {
@@ -160,12 +175,23 @@ export interface OpponentMatchSuggestion {
   explanation: string;
 }
 
+export interface SessionConfig {
+  sessionTargetMode: 'TARGET_ROUNDS_PER_PLAYER' | 'TARGET_TOTAL_MATCHES';
+  roundsPerPlayer: number; // e.g. 2, 3, 4
+  totalMatchesTarget: number; // e.g. 8, 10, 12, 16
+  enableProgressivePlayoffs: boolean; // Auto-pair winners vs winners, losers vs losers
+  playoffMode: 'WINNERS_AND_LOSERS' | 'WINNERS_ONLY';
+  courtCount: number;
+  maxDeltaThreshold: number;
+}
+
 export interface AlgorithmConfig {
-  phaseMode: 'STANDARD_TWO_PHASES' | 'MIXED_FIRST' | 'SAME_GENDER_ONLY' | 'MIXED_ONLY' | 'AUTO_BALANCED';
+  phaseMode: 'STANDARD_TWO_PHASES' | 'MIXED_FIRST' | 'SAME_GENDER_ONLY' | 'MIXED_ONLY' | 'AUTO_BALANCED' | 'PROGRESSIVE_PLAYOFF';
   targetPlayedCount: number;
   maxDeltaThreshold: number; // Usually 0 or 1
   avoidRepeatOpponents: boolean;
   courtCount: number;
   lockedPairs?: LockedPair[];
+  sessionConfig?: SessionConfig;
 }
 

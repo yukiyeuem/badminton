@@ -11,6 +11,7 @@ import {
   Swords,
   UserPlus,
   FileSpreadsheet,
+  Sliders,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -19,6 +20,7 @@ interface NavbarProps {
   onRerunCurrent: () => void;
   onOpenSpecModal: () => void;
   onOpenImportModal: () => void;
+  onOpenSessionConfig?: () => void;
   totalPlayers: number;
   totalMatches: number;
   averageDelta: number;
@@ -32,6 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onRerunCurrent,
   onOpenSpecModal,
   onOpenImportModal,
+  onOpenSessionConfig,
   totalPlayers,
   totalMatches,
   averageDelta,
@@ -89,10 +92,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="text-slate-400">Thành viên:</span>{' '}
             <span className="font-bold text-white font-mono">{totalPlayers}</span>
           </div>
-          <div className="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs">
+
+          <button
+            onClick={onOpenSessionConfig}
+            className="px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-xs flex items-center gap-1.5 cursor-pointer transition-colors group"
+            title="Tùy chỉnh số trận buổi đấu (8, 10, 12, 16 trận) và xếp tiếp từ kết quả"
+          >
+            <Sliders className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
             <span className="text-slate-400">Số trận:</span>{' '}
             <span className="font-bold text-white font-mono">{totalMatches}</span>
-          </div>
+          </button>
+
           <div className="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700/60 text-xs flex items-center gap-1.5">
             <span className="text-slate-400">Độ lệch TB:</span>{' '}
             <span className={`font-bold font-mono ${averageDelta === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>

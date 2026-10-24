@@ -5,6 +5,7 @@ import {
   validateMatchesStrict,
 } from './services/standardTestCase';
 import { runMatchmaking } from './services/matchmakingAlgorithm';
+import { generatePlayoffMatches, syncPlayoffMatchesWithResults } from './services/playoffManager';
 import { Navbar } from './components/Navbar';
 import { ScheduleView } from './components/ScheduleView';
 import { CourtManager } from './components/CourtManager';
@@ -14,11 +15,13 @@ import { AlgorithmVisualizer } from './components/AlgorithmVisualizer';
 import { ValidationReport } from './components/ValidationReport';
 import { SpecModal } from './components/SpecModal';
 import { BulkMemberImportModal } from './components/BulkMemberImportModal';
-import { CheckCircle2, Sparkles, Trophy, Users, ShieldCheck, FileText, Swords } from 'lucide-react';
+import { SessionConfigModal } from './components/SessionConfigModal';
+import { CheckCircle2, Sparkles, Trophy, Users, ShieldCheck, FileText, Swords, Sliders } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 export default function App() {
   const [players, setPlayers] = useState<Player[]>(() => createStandardTestPlayers());
+  const [targetTotalMatches, setTargetTotalMatches] = useState<number>(8);
   const [matchResult, setMatchResult] = useState<MatchmakingResult>(() => {
     return runMatchmaking(createStandardTestPlayers());
   });
@@ -26,6 +29,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<string>('schedule');
   const [isSpecModalOpen, setIsSpecModalOpen] = useState<boolean>(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
+  const [isSessionConfigOpen, setIsSessionConfigOpen] = useState<boolean>(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -34,19 +38,35 @@ export default function App() {
   };
 
   // Re-run matchmaking whenever triggered
-  const executeMatchmaking = (playerList: Player[]) => {
+  const executeMatchmaking = (
+    playerList: Player[],
+    matchTarget: number = targetTotalMatches
+  ) => {
     const res = runMatchmaking(playerList);
     setMatchResult(res);
-    setMatches(res.matches);
+
+    let finalMatches = [...res.matches];
+    if (matchTarget > res.matches.length) {
+      const extraCount = matchTarget - res.matches.length;
+      const playoffs = generatePlayoffMatches(res.matches, extraCount, playerList);
+      finalMatches = [...finalMatches, ...playoffs];
+    }
+
+    const playerMap = new Map<string, Player>();
+    playerList.forEach((p) => playerMap.set(p.id, p));
+    finalMatches = syncPlayoffMatchesWithResults(finalMatches, playerMap);
+
+    setMatches(finalMatches);
     setPlayers(res.updatedPlayers);
-    return res;
+    return { ...res, matches: finalMatches };
   };
 
   // Standard Test Case 1-click trigger
   const handleRunStandardTest = () => {
     const stdPlayers = createStandardTestPlayers();
     setPlayers(stdPlayers);
-    const res = executeMatchmaking(stdPlayers);
+    setTargetTotalMatches(8);
+    const res = executeMatchmaking(stdPlayers, 8);
     showToast('Đã nạp và chạy hoàn tất Test Case Tiêu chuẩn 16 người - 8 trận (Delta = 0)!');
     confetti({
       particleCount: 70,
@@ -61,8 +81,20 @@ export default function App() {
       playedCount: 0,
       pastPartners: [],
     }));
-    executeMatchmaking(resetList);
+    executeMatchmaking(resetList, targetTotalMatches);
     showToast('Đã tính toán và xếp lại trận đấu thành công!');
+  };
+
+  const handleApplySessionConfig = (newTargetCount: number, _enablePlayoffs: boolean) => {
+    setTargetTotalMatches(newTargetCount);
+    executeMatchmaking(players, newTargetCount);
+    showToast(`Đã thiết lập buổi đấu gồm ${newTargetCount} trận (kèm phân nhánh Thắng/Thua)!`);
+    confetti({
+      particleCount: 65,
+      spread: 60,
+      origin: { y: 0.6 },
+      colors: ['#10b981', '#fbbf24', '#38bdf8'],
+    });
   };
 
   const handleBulkImport = (newPlayersData: Omit<Player, 'id' | 'playedCount' | 'pastPartners'>[]) => {
@@ -74,7 +106,7 @@ export default function App() {
     }));
 
     setPlayers(newPlayers);
-    executeMatchmaking(newPlayers);
+    executeMatchmaking(newPlayers, targetTotalMatches);
     showToast(`Đã nạp thành công ${newPlayers.length} thành viên và xếp trận cân bằng (Delta ≈ 0)!`);
     confetti({
       particleCount: 80,
@@ -97,12 +129,12 @@ export default function App() {
     gameScoreB: number,
     status?: Match['status']
   ) => {
-    setMatches((prev) =>
-      prev.map((m) => {
+    setMatches((prev) => {
+      const updated = prev.map((m) => {
         if (m.matchId !== matchId) return m;
         const newStatus = status || m.status;
         let winner: 'teamA' | 'teamB' | undefined = m.winner;
-        if (newStatus === 'COMPLETED') {
+        if (newStatus === 'COMPLETED' || gameScoreA !== gameScoreB) {
           winner = gameScoreA > gameScoreB ? 'teamA' : 'teamB';
         }
         return {
@@ -112,8 +144,13 @@ export default function App() {
           status: newStatus,
           winner,
         };
-      })
-    );
+      });
+
+      // Synchronize with downstream playoff matches (e.g. Winner vs Winner, Loser vs Loser)
+      const playerMap = new Map<string, Player>();
+      players.forEach((p) => playerMap.set(p.id, p));
+      return syncPlayoffMatchesWithResults(updated, playerMap);
+    });
   };
 
   const handleAddPlayer = (newP: Omit<Player, 'id' | 'playedCount' | 'pastPartners'>) => {
@@ -127,14 +164,14 @@ export default function App() {
     };
     const updated = [...players, p];
     setPlayers(updated);
-    executeMatchmaking(updated);
+    executeMatchmaking(updated, targetTotalMatches);
     showToast(`Đã thêm thành viên ${p.name}!`);
   };
 
   const handleUpdatePlayer = (id: string, updates: Partial<Player>) => {
     const updated = players.map((p) => (p.id === id ? { ...p, ...updates } : p));
     setPlayers(updated);
-    executeMatchmaking(updated);
+    executeMatchmaking(updated, targetTotalMatches);
     showToast('Đã cập nhật thông tin thành viên!');
   };
 
@@ -145,7 +182,7 @@ export default function App() {
     }
     const updated = players.filter((p) => p.id !== id);
     setPlayers(updated);
-    executeMatchmaking(updated);
+    executeMatchmaking(updated, targetTotalMatches);
     showToast('Đã xóa thành viên khỏi danh sách!');
   };
 
@@ -156,7 +193,7 @@ export default function App() {
       pastPartners: [],
     }));
     setPlayers(resetList);
-    executeMatchmaking(resetList);
+    executeMatchmaking(resetList, targetTotalMatches);
     showToast('Đã đặt lại số trận đã đánh và lịch sử partner về 0!');
   };
 
@@ -178,6 +215,7 @@ export default function App() {
         onRerunCurrent={handleRerunCurrent}
         onOpenSpecModal={() => setIsSpecModalOpen(true)}
         onOpenImportModal={() => setIsImportModalOpen(true)}
+        onOpenSessionConfig={() => setIsSessionConfigOpen(true)}
         totalPlayers={players.length}
         totalMatches={matches.length}
         averageDelta={matchResult.algorithmStats.averageDelta}
@@ -194,6 +232,7 @@ export default function App() {
             matches={matches}
             players={players}
             onUpdateMatchScore={handleUpdateMatchScore}
+            onOpenSessionConfig={() => setIsSessionConfigOpen(true)}
           />
         )}
 
@@ -257,7 +296,7 @@ export default function App() {
               <span>Đặc tả .md</span>
             </button>
             <span>•</span>
-            <span className="font-mono text-emerald-400">8/8 Zero Delta Tested</span>
+            <span className="font-mono text-emerald-400">{matches.length} Trận Đấu Sắp Xếp</span>
           </div>
         </div>
       </footer>
@@ -273,6 +312,14 @@ export default function App() {
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onImportPlayers={handleBulkImport}
+      />
+
+      {/* Session Match Count & Progressive Playoff Config Modal */}
+      <SessionConfigModal
+        isOpen={isSessionConfigOpen}
+        onClose={() => setIsSessionConfigOpen(false)}
+        currentTotalMatches={targetTotalMatches}
+        onApplyConfig={handleApplySessionConfig}
       />
     </div>
   );
