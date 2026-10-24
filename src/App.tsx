@@ -4,7 +4,7 @@ import {
   createStandardTestPlayers,
   validateMatchesStrict,
 } from './services/standardTestCase';
-import { runMatchmaking } from './services/matchmakingAlgorithm';
+import { runMatchmaking, runContinuousMatchmaking } from './services/matchmakingAlgorithm';
 import { generatePlayoffMatches, syncPlayoffMatchesWithResults } from './services/playoffManager';
 import { Navbar } from './components/Navbar';
 import { ScheduleView } from './components/ScheduleView';
@@ -22,6 +22,7 @@ import confetti from 'canvas-confetti';
 export default function App() {
   const [players, setPlayers] = useState<Player[]>(() => createStandardTestPlayers());
   const [targetTotalMatches, setTargetTotalMatches] = useState<number>(8);
+  const [sessionMode, setSessionMode] = useState<'CONTINUOUS_MIXER' | 'PROGRESSIVE_PLAYOFF'>('CONTINUOUS_MIXER');
   const [matchResult, setMatchResult] = useState<MatchmakingResult>(() => {
     return runMatchmaking(createStandardTestPlayers());
   });
@@ -40,9 +41,32 @@ export default function App() {
   // Re-run matchmaking whenever triggered
   const executeMatchmaking = (
     playerList: Player[],
-    matchTarget: number = targetTotalMatches
+    matchTarget: number = targetTotalMatches,
+    mode: 'CONTINUOUS_MIXER' | 'PROGRESSIVE_PLAYOFF' = sessionMode
   ) => {
-    const res = runMatchmaking(playerList);
+    // If CONTINUOUS_MIXER or 8 players 6 matches or custom mixer without forced brackets
+    if (mode === 'CONTINUOUS_MIXER' || (playerList.length <= 8 && mode !== 'PROGRESSIVE_PLAYOFF')) {
+      const res = runContinuousMatchmaking(playerList, matchTarget);
+      setMatchResult(res);
+      setMatches(res.matches);
+      setPlayers(res.updatedPlayers);
+      return res;
+    }
+
+    // Progressive Playoff Tournament flow
+    const res = runMatchmaking(playerList, {
+      phaseMode: 'STANDARD_TWO_PHASES',
+      sessionConfig: {
+        sessionTargetMode: 'TARGET_TOTAL_MATCHES',
+        roundsPerPlayer: 2,
+        totalMatchesTarget: matchTarget,
+        enableProgressivePlayoffs: true,
+        playoffMode: 'WINNERS_AND_LOSERS',
+        courtCount: 4,
+        maxDeltaThreshold: 0,
+        mixerMode: 'PROGRESSIVE_PLAYOFF',
+      },
+    });
     setMatchResult(res);
 
     let finalMatches = [...res.matches];
@@ -66,7 +90,11 @@ export default function App() {
     const stdPlayers = createStandardTestPlayers();
     setPlayers(stdPlayers);
     setTargetTotalMatches(8);
-    const res = executeMatchmaking(stdPlayers, 8);
+    setSessionMode('CONTINUOUS_MIXER');
+    const res = runMatchmaking(stdPlayers);
+    setMatchResult(res);
+    setMatches(res.matches);
+    setPlayers(res.updatedPlayers);
     showToast('Đã nạp và chạy hoàn tất Test Case Tiêu chuẩn 16 người - 8 trận (Delta = 0)!');
     confetti({
       particleCount: 70,
@@ -81,16 +109,24 @@ export default function App() {
       playedCount: 0,
       pastPartners: [],
     }));
-    executeMatchmaking(resetList, targetTotalMatches);
-    showToast('Đã tính toán và xếp lại trận đấu thành công!');
+    executeMatchmaking(resetList, targetTotalMatches, sessionMode);
+    showToast('Đã tính toán và xếp lại trận đấu thành công (Δ ≤ 1)!');
   };
 
-  const handleApplySessionConfig = (newTargetCount: number, _enablePlayoffs: boolean) => {
+  const handleApplySessionConfig = (
+    newTargetCount: number,
+    mode: 'CONTINUOUS_MIXER' | 'PROGRESSIVE_PLAYOFF'
+  ) => {
     setTargetTotalMatches(newTargetCount);
-    executeMatchmaking(players, newTargetCount);
-    showToast(`Đã thiết lập buổi đấu gồm ${newTargetCount} trận (kèm phân nhánh Thắng/Thua)!`);
+    setSessionMode(mode);
+    executeMatchmaking(players, newTargetCount, mode);
+    const modeLabel =
+      mode === 'CONTINUOUS_MIXER'
+        ? 'Mix Giao Lưu Tự Do: 100% Trận Delta ≤ 1'
+        : 'Giải Đấu Nối Tiếp: Playoffs Thắng/Thua';
+    showToast(`Đã thiết lập buổi đấu gồm ${newTargetCount} trận (${modeLabel})!`);
     confetti({
-      particleCount: 65,
+      particleCount: 70,
       spread: 60,
       origin: { y: 0.6 },
       colors: ['#10b981', '#fbbf24', '#38bdf8'],
@@ -319,6 +355,8 @@ export default function App() {
         isOpen={isSessionConfigOpen}
         onClose={() => setIsSessionConfigOpen(false)}
         currentTotalMatches={targetTotalMatches}
+        currentMode={sessionMode}
+        totalPlayersCount={players.length}
         onApplyConfig={handleApplySessionConfig}
       />
     </div>

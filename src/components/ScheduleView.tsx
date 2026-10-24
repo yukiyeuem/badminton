@@ -40,14 +40,20 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   players.forEach((p) => playerMap.set(p.id, p));
 
   const filteredMatches = matches.filter((m) => {
-    if (selectedPhase !== 'ALL' && m.phase !== selectedPhase) return false;
+    if (selectedPhase !== 'ALL') {
+      if (selectedPhase === 999) {
+        if (!m.sourceMatchA && m.stage !== 'WINNER_BRACKET' && m.stage !== 'LOSER_BRACKET') return false;
+      } else if (m.phase !== selectedPhase) {
+        return false;
+      }
+    }
     if (selectedCourt !== 'ALL' && m.courtNumber !== selectedCourt) return false;
     return true;
   });
 
-  const phase1Matches = matches.filter((m) => m.phase === 1);
-  const phase2Matches = matches.filter((m) => m.phase === 2);
-  const playoffMatches = matches.filter((m) => m.phase >= 3);
+  const isPlayoffModeActive = matches.some((m) => m.stage === 'WINNER_BRACKET' || m.stage === 'LOSER_BRACKET' || m.sourceMatchA);
+  const playoffMatches = matches.filter((m) => m.stage === 'WINNER_BRACKET' || m.stage === 'LOSER_BRACKET' || m.sourceMatchA);
+  const distinctPhases = Array.from(new Set(matches.filter((m) => !m.sourceMatchA && m.stage !== 'WINNER_BRACKET' && m.stage !== 'LOSER_BRACKET').map((m) => m.phase))).sort((a, b) => a - b);
 
   const handleCopySchedule = () => {
     let text = `🏸 LỊCH THI ĐẤU CẦU LÔNG - BADMINTON MATCHMAKER\n`;
@@ -106,31 +112,30 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           >
             Tất cả ({matches.length})
           </button>
-          <button
-            onClick={() => setSelectedPhase(1)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              selectedPhase === 1
-                ? 'bg-emerald-600 text-white'
-                : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Lượt 1: Cùng giới ({phase1Matches.length})
-          </button>
-          <button
-            onClick={() => setSelectedPhase(2)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              selectedPhase === 2
-                ? 'bg-emerald-600 text-white'
-                : 'bg-slate-800 text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Lượt 2: Nam Nữ ({phase2Matches.length})
-          </button>
-          {playoffMatches.length > 0 && (
+          {distinctPhases.map((phaseNum) => {
+            const count = matches.filter((m) => m.phase === phaseNum && !m.sourceMatchA && m.stage !== 'WINNER_BRACKET' && m.stage !== 'LOSER_BRACKET').length;
+            const label = distinctPhases.length === 2
+              ? phaseNum === 1 ? 'Lượt 1: Cùng giới' : 'Lượt 2: Nam Nữ'
+              : `Vòng ${phaseNum}`;
+            return (
+              <button
+                key={phaseNum}
+                onClick={() => setSelectedPhase(phaseNum)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  selectedPhase === phaseNum
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {label} ({count})
+              </button>
+            );
+          })}
+          {isPlayoffModeActive && playoffMatches.length > 0 && (
             <button
-              onClick={() => setSelectedPhase(3)}
+              onClick={() => setSelectedPhase(999)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                selectedPhase === 3
+                selectedPhase === 999
                   ? 'bg-amber-600 text-white'
                   : 'bg-slate-800 text-amber-300 hover:text-amber-200'
               }`}
@@ -182,7 +187,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           const pB1 = playerMap.get(m.teamB[0]);
           const pB2 = playerMap.get(m.teamB[1]);
 
-          const isPlayoff = !!(m.sourceMatchA || m.sourceMatchB || m.phase >= 3);
+          const isPlayoff = !!(m.sourceMatchA || m.sourceMatchB) || m.stage === 'WINNER_BRACKET' || m.stage === 'LOSER_BRACKET';
           const isPendingA = !pA1 && !!m.sourceMatchA;
           const isPendingB = !pB1 && !!m.sourceMatchB;
 

@@ -183,10 +183,11 @@ export interface SessionConfig {
   playoffMode: 'WINNERS_AND_LOSERS' | 'WINNERS_ONLY';
   courtCount: number;
   maxDeltaThreshold: number;
+  mixerMode?: 'CONTINUOUS_MIXER' | 'PROGRESSIVE_PLAYOFF';
 }
 
 export interface AlgorithmConfig {
-  phaseMode: 'STANDARD_TWO_PHASES' | 'MIXED_FIRST' | 'SAME_GENDER_ONLY' | 'MIXED_ONLY' | 'AUTO_BALANCED' | 'PROGRESSIVE_PLAYOFF';
+  phaseMode: 'STANDARD_TWO_PHASES' | 'MIXED_FIRST' | 'SAME_GENDER_ONLY' | 'MIXED_ONLY' | 'AUTO_BALANCED' | 'PROGRESSIVE_PLAYOFF' | 'CONTINUOUS_MIXER';
   targetPlayedCount: number;
   maxDeltaThreshold: number; // Usually 0 or 1
   avoidRepeatOpponents: boolean;

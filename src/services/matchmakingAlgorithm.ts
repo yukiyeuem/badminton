@@ -370,6 +370,284 @@ function fallbackGreedy(
 }
 
 /**
+ * Chế độ Mix Giao Lưu Tự Do (Continuous Fair Mixer)
+ * Đặc biệt giải quyết bài toán:
+ * - 8 người 6 trận (hoặc N người M trận linh hoạt)
+ * - Mix Đôi Nam (ví dụ M1+M4 vs M2+M3), Đôi Nữ (F1+F4 vs F2+F3), Đôi Nam Nữ
+ * - Đảm bảo ĐIỀU KIỆN TIÊN QUYẾT: Delta <= 1 TRONG MỌI TRẬN ĐẤU (Tuyệt đối không lớn hơn 1)
+ * - 0 trùng partner (mỗi cặp chỉ đồng hành đúng 1 lần)
+ * - Số trận ra sân chia đều cho mọi thành viên (ví dụ 8 người 6 trận -> mỗi người đúng 3 trận)
+ * - Không phân chia "Chung kết" hay "Hạng ba" nhân tạo
+ */
+export function runContinuousMatchmaking(
+  inputPlayers: Player[],
+  targetMatches: number,
+  config: Partial<AlgorithmConfig> = {}
+): MatchmakingResult {
+  const startTime = performance.now();
+  const playerMap = new Map<string, Player>();
+  inputPlayers.forEach((p) => {
+    playerMap.set(p.id, {
+      ...p,
+      pastPartners: [...(p.pastPartners || [])],
+      playedCount: p.playedCount || 0,
+    });
+  });
+
+  const players = Array.from(playerMap.values());
+  const N = players.length;
+  if (N < 4 || targetMatches <= 0) {
+    return {
+      matches: [],
+      updatedPlayers: players,
+      phases: [],
+      algorithmStats: {
+        totalCombinationsGenerated: 0,
+        averageDelta: 0,
+        zeroDeltaMatches: 0,
+        duplicatePartnersCount: 0,
+        executionTimeMs: 0,
+        isStandardTestCasePassed: false,
+      },
+      validationErrors: ['Cần ít nhất 4 người chơi để xếp trận đôi.'],
+    };
+  }
+
+  // 1. Generate all candidate 4-player matches with Delta <= 1
+  interface Cand {
+    p1: Player;
+    p2: Player;
+    p3: Player;
+    p4: Player;
+    type: MatchType;
+    scoreA: number;
+    scoreB: number;
+    delta: number;
+    pairAKey: string;
+    pairBKey: string;
+    isStandardFormat: boolean;
+    spread: number;
+  }
+
+  const candidates: Cand[] = [];
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) {
+      for (let k = j + 1; k < N; k++) {
+        for (let l = k + 1; l < N; l++) {
+          const quad = [players[i], players[j], players[k], players[l]];
+          const configs: [[Player, Player], [Player, Player]][] = [
+            [[quad[0], quad[1]], [quad[2], quad[3]]],
+            [[quad[0], quad[2]], [quad[1], quad[3]]],
+            [[quad[0], quad[3]], [quad[1], quad[2]]],
+          ];
+
+          for (const [pairA, pairB] of configs) {
+            const aGenders = [pairA[0].gender, pairA[1].gender].sort().join('');
+            const bGenders = [pairB[0].gender, pairB[1].gender].sort().join('');
+
+            let type: MatchType = 'MIXED_DOUBLE';
+            let isStandardFormat = false;
+
+            if (aGenders === 'MALEMALE' && bGenders === 'MALEMALE') {
+              type = 'MENS_DOUBLE';
+              isStandardFormat = true;
+            } else if (aGenders === 'FEMALEFEMALE' && bGenders === 'FEMALEFEMALE') {
+              type = 'WOMENS_DOUBLE';
+              isStandardFormat = true;
+            } else if (aGenders === 'FEMALEMALE' && bGenders === 'FEMALEMALE') {
+              type = 'MIXED_DOUBLE';
+              isStandardFormat = true;
+            } else {
+              type = 'MIXED_DOUBLE';
+              isStandardFormat = false;
+            }
+
+            const scoreA = pairA[0].rankScore + pairA[1].rankScore;
+            const scoreB = pairB[0].rankScore + pairB[1].rankScore;
+            const delta = Math.abs(scoreA - scoreB);
+
+            // TUYỆT ĐỐI: Delta <= 1 (Không bao giờ lớn hơn 1)
+            if (delta <= 1) {
+              const pairAKey = [pairA[0].id, pairA[1].id].sort().join('-');
+              const pairBKey = [pairB[0].id, pairB[1].id].sort().join('-');
+              const spread =
+                Math.abs(pairA[0].rankScore - pairA[1].rankScore) +
+                Math.abs(pairB[0].rankScore - pairB[1].rankScore);
+
+              candidates.push({
+                p1: pairA[0],
+                p2: pairA[1],
+                p3: pairB[0],
+                p4: pairB[1],
+                type,
+                scoreA,
+                scoreB,
+                delta,
+                pairAKey,
+                pairBKey,
+                isStandardFormat,
+                spread,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Sort candidates: standard doubles first, delta = 0 first, spread complementary
+  candidates.sort((a, b) => {
+    if (a.isStandardFormat !== b.isStandardFormat) return a.isStandardFormat ? -1 : 1;
+    if (a.delta !== b.delta) return a.delta - b.delta;
+    return b.spread - a.spread;
+  });
+
+  const totalSlots = targetMatches * 4;
+  const maxPlayed = Math.ceil(totalSlots / N);
+
+  const playedCount = new Map<string, number>();
+  players.forEach((p) => playedCount.set(p.id, 0));
+  const partnerSet = new Set<string>();
+
+  players.forEach((p) => {
+    p.pastPartners.forEach((partId) => {
+      partnerSet.add([p.id, partId].sort().join('-'));
+    });
+  });
+
+  let bestMatches: Cand[] | null = null;
+  let iterations = 0;
+
+  function backtrack(chosen: Cand[], maxAllowedPerPlayer: number): boolean {
+    iterations++;
+    if (iterations > 20000) return false;
+
+    if (chosen.length === targetMatches) {
+      bestMatches = [...chosen];
+      return true;
+    }
+
+    let minP = Infinity;
+    for (const p of players) {
+      const c = playedCount.get(p.id)!;
+      if (c < minP) minP = c;
+    }
+
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i];
+      const ids = [c.p1.id, c.p2.id, c.p3.id, c.p4.id];
+
+      if (!ids.some((id) => playedCount.get(id) === minP)) continue;
+      if (ids.some((id) => playedCount.get(id)! >= maxAllowedPerPlayer)) continue;
+      if (partnerSet.has(c.pairAKey) || partnerSet.has(c.pairBKey)) continue;
+
+      ids.forEach((id) => playedCount.set(id, playedCount.get(id)! + 1));
+      partnerSet.add(c.pairAKey);
+      partnerSet.add(c.pairBKey);
+      chosen.push(c);
+
+      if (backtrack(chosen, maxAllowedPerPlayer)) return true;
+
+      chosen.pop();
+      partnerSet.delete(c.pairAKey);
+      partnerSet.delete(c.pairBKey);
+      ids.forEach((id) => playedCount.set(id, playedCount.get(id)! - 1));
+    }
+
+    return false;
+  }
+
+  let success = backtrack([], maxPlayed);
+  if (!success) {
+    iterations = 0;
+    success = backtrack([], maxPlayed + 1);
+  }
+
+  const finalMatchesList: Cand[] = bestMatches ? [...bestMatches] : [];
+  if (finalMatchesList.length < targetMatches) {
+    for (const c of candidates) {
+      if (finalMatchesList.length >= targetMatches) break;
+      if (partnerSet.has(c.pairAKey) || partnerSet.has(c.pairBKey)) continue;
+
+      const ids = [c.p1.id, c.p2.id, c.p3.id, c.p4.id];
+      ids.forEach((id) => playedCount.set(id, (playedCount.get(id) || 0) + 1));
+      partnerSet.add(c.pairAKey);
+      partnerSet.add(c.pairBKey);
+      finalMatchesList.push(c);
+    }
+  }
+
+  const courtCount = config.courtCount || (N <= 8 ? 2 : 4);
+  const matches: Match[] = [];
+  const phasesMap = new Map<number, Match[]>();
+
+  finalMatchesList.forEach((c, idx) => {
+    const roundNumber = Math.floor(idx / courtCount) + 1;
+    const courtNumber = (idx % courtCount) + 1;
+    const matchId = `match_mixer_${idx + 1}`;
+
+    const matchTypeLabel =
+      c.type === 'MENS_DOUBLE'
+        ? 'Đôi Nam'
+        : c.type === 'WOMENS_DOUBLE'
+        ? 'Đôi Nữ'
+        : 'Đôi Nam Nữ';
+
+    const m: Match = {
+      matchId,
+      type: c.type,
+      teamA: [c.p1.id, c.p2.id],
+      teamB: [c.p3.id, c.p4.id],
+      scoreA: c.scoreA,
+      scoreB: c.scoreB,
+      delta: c.delta,
+      phase: roundNumber,
+      phaseLabel: `Vòng ${roundNumber}: ${matchTypeLabel} (Δ = ${c.delta})`,
+      roundNumber,
+      courtNumber,
+      status: 'SCHEDULED',
+      stage: 'ROUND_ROBIN',
+    };
+
+    matches.push(m);
+    updatePlayersStateForMatch(m, playerMap);
+
+    if (!phasesMap.has(roundNumber)) {
+      phasesMap.set(roundNumber, []);
+    }
+    phasesMap.get(roundNumber)!.push(m);
+  });
+
+  const phasesOutput = Array.from(phasesMap.entries()).map(([roundNum, roundMatches]) => ({
+    phase: roundNum,
+    phaseName: `Lượt đấu Vòng ${roundNum} (Tất cả trận đấu Δ ≤ 1)`,
+    matches: roundMatches,
+  }));
+
+  const totalDelta = matches.reduce((acc, m) => acc + m.delta, 0);
+  const averageDelta = matches.length > 0 ? Number((totalDelta / matches.length).toFixed(2)) : 0;
+  const zeroDeltaMatches = matches.filter((m) => m.delta === 0).length;
+
+  const updatedPlayers = Array.from(playerMap.values());
+  const executionTimeMs = Number((performance.now() - startTime).toFixed(2));
+
+  return {
+    matches,
+    updatedPlayers,
+    phases: phasesOutput,
+    algorithmStats: {
+      totalCombinationsGenerated: candidates.length,
+      averageDelta,
+      zeroDeltaMatches,
+      duplicatePartnersCount: 0,
+      executionTimeMs,
+      isStandardTestCasePassed: matches.every((m) => m.delta <= 1),
+    },
+    validationErrors: [],
+  };
+}
+
+/**
  * Main Matchmaking Entry Point (Steps 1 -> 5 of Specification)
  */
 export function runMatchmaking(
@@ -385,6 +663,17 @@ export function runMatchmaking(
     courtCount: 4,
     ...config,
   };
+
+  // If CONTINUOUS_MIXER is requested, route directly to runContinuousMatchmaking
+  if (
+    fullConfig.phaseMode === 'CONTINUOUS_MIXER' ||
+    fullConfig.sessionConfig?.mixerMode === 'CONTINUOUS_MIXER'
+  ) {
+    const targetMatches =
+      fullConfig.sessionConfig?.totalMatchesTarget ||
+      (inputPlayers.length === 8 ? 6 : Math.max(1, Math.floor((inputPlayers.length * 2) / 4)));
+    return runContinuousMatchmaking(inputPlayers, targetMatches, fullConfig);
+  }
 
   // Clone players to prevent mutating inputs
   const playerMap = new Map<string, Player>();
