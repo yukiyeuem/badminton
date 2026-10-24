@@ -1,0 +1,6 @@
+{
+  "name": "Badminton Matchmaker - Thuật Toán Xếp Trận Cầu Lông",
+  "description": "Hệ thống tự động xếp trận cầu lông thông minh: cân bằng trình độ (Delta ≈ 0), chống trùng đồng đội, hỗ trợ Đôi Nam, Đôi Nữ và Đôi Nam Nữ.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
