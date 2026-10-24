@@ -438,43 +438,73 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                 </div>
 
                 {/* Scorekeeper Row */}
-                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-400 font-medium">Tỷ số set:</span>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center bg-slate-950 rounded-lg border border-slate-800 px-1">
+                <div className="pt-2 border-t border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-medium">Điền tỷ số:</span>
+                    <div className="flex items-center gap-1.5">
+                      {/* Team A direct score input */}
+                      <div className="flex items-center bg-slate-950 rounded-lg border border-slate-700/80 focus-within:border-emerald-500 px-1 py-0.5">
                         <button
+                          type="button"
                           onClick={() => onUpdateMatchScore(m.matchId, Math.max(0, gA - 1), gB)}
                           className="p-1 hover:text-emerald-400 text-slate-400"
+                          title="Giảm 1 điểm"
                         >
                           <Minus className="w-3 h-3" />
                         </button>
-                        <span className="px-2 font-mono font-bold text-emerald-400 text-sm">
-                          {gA}
-                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={35}
+                          value={gA === 0 ? '' : gA}
+                          placeholder="0"
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value) || 0);
+                            onUpdateMatchScore(m.matchId, val, gB);
+                          }}
+                          className="w-10 text-center font-mono font-bold text-emerald-400 text-sm bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          title="Nhập trực tiếp số điểm Đội A"
+                        />
                         <button
+                          type="button"
                           onClick={() => onUpdateMatchScore(m.matchId, gA + 1, gB)}
                           className="p-1 hover:text-emerald-400 text-slate-400"
+                          title="Tăng 1 điểm"
                         >
                           <Plus className="w-3 h-3" />
                         </button>
                       </div>
 
-                      <span className="text-slate-600 font-bold">:</span>
+                      <span className="text-slate-500 font-bold">:</span>
 
-                      <div className="flex items-center bg-slate-950 rounded-lg border border-slate-800 px-1">
+                      {/* Team B direct score input */}
+                      <div className="flex items-center bg-slate-950 rounded-lg border border-slate-700/80 focus-within:border-sky-500 px-1 py-0.5">
                         <button
+                          type="button"
                           onClick={() => onUpdateMatchScore(m.matchId, gA, Math.max(0, gB - 1))}
                           className="p-1 hover:text-sky-400 text-slate-400"
+                          title="Giảm 1 điểm"
                         >
                           <Minus className="w-3 h-3" />
                         </button>
-                        <span className="px-2 font-mono font-bold text-sky-400 text-sm">
-                          {gB}
-                        </span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={35}
+                          value={gB === 0 ? '' : gB}
+                          placeholder="0"
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value) || 0);
+                            onUpdateMatchScore(m.matchId, gA, val);
+                          }}
+                          className="w-10 text-center font-mono font-bold text-sky-400 text-sm bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          title="Nhập trực tiếp số điểm Đội B"
+                        />
                         <button
+                          type="button"
                           onClick={() => onUpdateMatchScore(m.matchId, gA, gB + 1)}
                           className="p-1 hover:text-sky-400 text-slate-400"
+                          title="Tăng 1 điểm"
                         >
                           <Plus className="w-3 h-3" />
                         </button>
@@ -482,20 +512,40 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Status Toggle */}
-                  <div>
+                  {/* Status Toggle & Quick Sets */}
+                  <div className="flex items-center gap-1.5">
+                    {/* Quick 21 button */}
+                    <button
+                      type="button"
+                      onClick={() => onUpdateMatchScore(m.matchId, 21, gB === 0 ? 19 : gB, 'COMPLETED')}
+                      className="px-2 py-0.5 text-[10px] font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                      title="Gán nhanh Đội A 21 điểm"
+                    >
+                      A=21
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onUpdateMatchScore(m.matchId, gA === 0 ? 19 : gA, 21, 'COMPLETED')}
+                      className="px-2 py-0.5 text-[10px] font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                      title="Gán nhanh Đội B 21 điểm"
+                    >
+                      B=21
+                    </button>
+
                     {isDone ? (
                       <button
+                        type="button"
                         onClick={() => onUpdateMatchScore(m.matchId, gA, gB, 'SCHEDULED')}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/30 transition-colors"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-500/20 text-emerald-300 text-xs font-semibold hover:bg-emerald-500/30 transition-colors ml-1"
                       >
                         <Award className="w-3.5 h-3.5" />
-                        <span>Đã kết thúc</span>
+                        <span>Đã chốt</span>
                       </button>
                     ) : (
                       <button
+                        type="button"
                         onClick={() => onUpdateMatchScore(m.matchId, gA, gB, 'COMPLETED')}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700 transition-colors"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700 transition-colors ml-1"
                       >
                         <Play className="w-3 h-3 fill-current text-emerald-400" />
                         <span>Chốt trận</span>

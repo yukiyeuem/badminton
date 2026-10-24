@@ -200,17 +200,33 @@ export const CourtManager: React.FC<CourtManagerProps> = ({
                     {/* Point button */}
                     <div className="mt-3 flex items-center justify-between">
                       <button
+                        type="button"
                         onClick={() => onUpdateMatchScore(activeMatch.matchId, Math.max(0, gA - 1), gB)}
                         className="p-1 rounded bg-slate-800 text-slate-400 hover:text-white"
+                        title="Giảm 1 điểm"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
-                      <span className="font-mono text-xl font-black text-emerald-400">{gA}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={35}
+                        value={gA === 0 ? '' : gA}
+                        placeholder="0"
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value) || 0);
+                          onUpdateMatchScore(activeMatch.matchId, val, gB);
+                        }}
+                        className="w-12 text-center font-mono text-xl font-black text-emerald-400 bg-slate-900 border border-slate-700/80 rounded py-0.5 focus:border-emerald-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        title="Điền trực tiếp điểm Đội A"
+                      />
                       <button
+                        type="button"
                         onClick={() => onUpdateMatchScore(activeMatch.matchId, gA + 1, gB)}
                         className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs"
+                        title="Cộng 1 điểm"
                       >
-                        +1 Điểm
+                        +1
                       </button>
                     </div>
                   </div>
@@ -219,6 +235,7 @@ export const CourtManager: React.FC<CourtManagerProps> = ({
                   <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800">
                     <div className="flex items-center justify-between mb-1.5">
                       <button
+                        type="button"
                         onClick={() => toggleServe(courtNum)}
                         className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider flex items-center gap-1 ${
                           currentServe === 'B'
@@ -240,17 +257,33 @@ export const CourtManager: React.FC<CourtManagerProps> = ({
                     {/* Point button */}
                     <div className="mt-3 flex items-center justify-between">
                       <button
+                        type="button"
                         onClick={() => onUpdateMatchScore(activeMatch.matchId, gA, Math.max(0, gB - 1))}
                         className="p-1 rounded bg-slate-800 text-slate-400 hover:text-white"
+                        title="Giảm 1 điểm"
                       >
                         <Minus className="w-3.5 h-3.5" />
                       </button>
-                      <span className="font-mono text-xl font-black text-sky-400">{gB}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={35}
+                        value={gB === 0 ? '' : gB}
+                        placeholder="0"
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value) || 0);
+                          onUpdateMatchScore(activeMatch.matchId, gA, val);
+                        }}
+                        className="w-12 text-center font-mono text-xl font-black text-sky-400 bg-slate-900 border border-slate-700/80 rounded py-0.5 focus:border-sky-500 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        title="Điền trực tiếp điểm Đội B"
+                      />
                       <button
+                        type="button"
                         onClick={() => onUpdateMatchScore(activeMatch.matchId, gA, gB + 1)}
                         className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs"
+                        title="Cộng 1 điểm"
                       >
-                        +1 Điểm
+                        +1
                       </button>
                     </div>
                   </div>
