@@ -546,6 +546,17 @@ export function runContinuousMatchmaking(
   }
 
   // 2. Continuous schedule generation supporting any target match count (6, 8, 9, 10, 11, etc.)
+  const maleCount = players.filter((p) => p.gender === 'MALE').length;
+  const femaleCount = players.filter((p) => p.gender === 'FEMALE').length;
+  // User invariant: Regardless of target matches, always schedule at least 2 Men's Doubles (if >= 4 men).
+  // If at least 4 women, always schedule at least 2 Women's Doubles.
+  const minMensNeeded = maleCount >= 4 ? Math.min(2, targetMatches) : 0;
+  const minWomensNeeded =
+    femaleCount >= 4 ? Math.min(2, Math.max(0, targetMatches - minMensNeeded)) : 0;
+
+  let scheduledMens = 0;
+  let scheduledWomens = 0;
+
   const playedCount = new Map<string, number>();
   players.forEach((p) => playedCount.set(p.id, 0));
 
@@ -565,18 +576,42 @@ export function runContinuousMatchmaking(
     const matchesInThisRound = Math.min(courtCount, targetMatches - scheduledList.length);
     if (matchesInThisRound <= 0) break;
 
+    const deficitMens = Math.max(0, minMensNeeded - scheduledMens);
+    const deficitWomens = Math.max(0, minWomensNeeded - scheduledWomens);
+
     // For 8 players on 2 courts, partition all 8 players in a full round when matchesInThisRound === 2
     if (N === 8 && matchesInThisRound === 2) {
       let bestPair: [Cand, Cand] | null = null;
       let bestPairCost = Infinity;
 
+      // Quota check: if we need same-gender doubles, enforce or strongly prefer them
+      const needBothGenderDoubles = deficitMens > 0 && deficitWomens > 0;
+      const needMensOnly = deficitMens > 0 && deficitWomens === 0;
+      const needWomensOnly = deficitWomens > 0 && deficitMens === 0;
+
       for (let i = 0; i < candidates.length; i++) {
         const c1 = candidates[i];
+        if (needBothGenderDoubles && c1.type !== 'MENS_DOUBLE' && c1.type !== 'WOMENS_DOUBLE') {
+          continue;
+        }
+
         const set1 = new Set(c1.playerIds);
 
         for (let j = i + 1; j < candidates.length; j++) {
           const c2 = candidates[j];
           if (c2.playerIds.some((id) => set1.has(id))) continue;
+
+          if (needBothGenderDoubles) {
+            const hasMens = c1.type === 'MENS_DOUBLE' || c2.type === 'MENS_DOUBLE';
+            const hasWomens = c1.type === 'WOMENS_DOUBLE' || c2.type === 'WOMENS_DOUBLE';
+            if (!hasMens || !hasWomens) continue;
+          } else if (needMensOnly) {
+            const hasMens = c1.type === 'MENS_DOUBLE' || c2.type === 'MENS_DOUBLE';
+            if (!hasMens) continue;
+          } else if (needWomensOnly) {
+            const hasWomens = c1.type === 'WOMENS_DOUBLE' || c2.type === 'WOMENS_DOUBLE';
+            if (!hasWomens) continue;
+          }
 
           // Cost function
           const r1A = partnerCount.get(c1.pairAKey) || 0;
@@ -600,6 +635,8 @@ export function runContinuousMatchmaking(
       if (bestPair) {
         for (const cand of bestPair) {
           scheduledList.push(cand);
+          if (cand.type === 'MENS_DOUBLE') scheduledMens++;
+          if (cand.type === 'WOMENS_DOUBLE') scheduledWomens++;
           cand.playerIds.forEach((id) => playedCount.set(id, playedCount.get(id)! + 1));
           partnerCount.set(cand.pairAKey, (partnerCount.get(cand.pairAKey) || 0) + 1);
           partnerCount.set(cand.pairBKey, (partnerCount.get(cand.pairBKey) || 0) + 1);
@@ -614,10 +651,20 @@ export function runContinuousMatchmaking(
       let bestCand: Cand | null = null;
       let bestCost = Infinity;
       const minOverall = Math.min(...Array.from(playedCount.values()));
+      const remainingTotalMatches = targetMatches - scheduledList.length;
+      const curDeficitMens = Math.max(0, minMensNeeded - scheduledMens);
+      const curDeficitWomens = Math.max(0, minWomensNeeded - scheduledWomens);
+
+      // Check if we must strictly pick same-gender candidate to satisfy quota
+      const mustPickMens = curDeficitMens > 0 && remainingTotalMatches <= (curDeficitMens + curDeficitWomens);
+      const mustPickWomens = curDeficitWomens > 0 && remainingTotalMatches <= (curDeficitMens + curDeficitWomens);
 
       for (const cand of candidates) {
         // Player cannot play twice in the same round
         if (cand.playerIds.some((id) => roundPlayers.has(id))) continue;
+
+        if (mustPickMens && cand.type !== 'MENS_DOUBLE') continue;
+        if (mustPickWomens && cand.type !== 'WOMENS_DOUBLE') continue;
 
         const pCounts = cand.playerIds.map((id) => playedCount.get(id)!);
 
@@ -634,7 +681,12 @@ export function runContinuousMatchmaking(
         const spreadBonus = -cand.spread * 2;
         const stdBonus = cand.isStandardFormat ? -200 : 0;
 
-        const totalCost = playedPenalty + partnerCost + deltaCost + spreadBonus + stdBonus;
+        // Quota bonus to fulfill minMensNeeded and minWomensNeeded
+        let quotaBonus = 0;
+        if (cand.type === 'MENS_DOUBLE' && curDeficitMens > 0) quotaBonus -= 30000;
+        if (cand.type === 'WOMENS_DOUBLE' && curDeficitWomens > 0) quotaBonus -= 30000;
+
+        const totalCost = playedPenalty + partnerCost + deltaCost + spreadBonus + stdBonus + quotaBonus;
         if (totalCost < bestCost) {
           bestCost = totalCost;
           bestCand = cand;
@@ -643,6 +695,8 @@ export function runContinuousMatchmaking(
 
       if (bestCand) {
         scheduledList.push(bestCand);
+        if (bestCand.type === 'MENS_DOUBLE') scheduledMens++;
+        if (bestCand.type === 'WOMENS_DOUBLE') scheduledWomens++;
         bestCand.playerIds.forEach((id) => {
           roundPlayers.add(id);
           playedCount.set(id, playedCount.get(id)! + 1);
@@ -656,6 +710,7 @@ export function runContinuousMatchmaking(
   // 3. Assemble matches, rounds, and phases
   const matches: Match[] = [];
   const phasesMap = new Map<number, Match[]>();
+  const seenPairings = new Set<string>();
 
   scheduledList.forEach((c, idx) => {
     const roundNumber = Math.floor(idx / courtCount) + 1;
@@ -669,16 +724,28 @@ export function runContinuousMatchmaking(
         ? 'Đôi Nữ'
         : 'Đôi Nam Nữ';
 
+    // If exact same 4 players in exact same pairs play again, swap sides for the return leg / rematch
+    const directKey = `${c.pairAKey}__vs__${c.pairBKey}`;
+    const isRematch = seenPairings.has(directKey);
+    seenPairings.add(directKey);
+
+    const teamA = isRematch ? [c.p3.id, c.p4.id] : [c.p1.id, c.p2.id];
+    const teamB = isRematch ? [c.p1.id, c.p2.id] : [c.p3.id, c.p4.id];
+    const scoreA = isRematch ? c.scoreB : c.scoreA;
+    const scoreB = isRematch ? c.scoreA : c.scoreB;
+
+    const phaseNote = isRematch ? ' (Lượt về)' : '';
+
     const m: Match = {
       matchId,
       type: c.type,
-      teamA: [c.p1.id, c.p2.id],
-      teamB: [c.p3.id, c.p4.id],
-      scoreA: c.scoreA,
-      scoreB: c.scoreB,
+      teamA: teamA as [string, string],
+      teamB: teamB as [string, string],
+      scoreA,
+      scoreB,
       delta: c.delta,
       phase: roundNumber,
-      phaseLabel: `Vòng ${roundNumber}: ${matchTypeLabel} (Δ = ${c.delta})`,
+      phaseLabel: `Vòng ${roundNumber}: ${matchTypeLabel}${phaseNote} (Δ = ${c.delta})`,
       roundNumber,
       courtNumber,
       status: 'SCHEDULED',

@@ -277,7 +277,7 @@ export const SessionConfigModal: React.FC<SessionConfigModalProps> = ({
           <div className="p-3.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 flex items-start gap-3">
             <Shield className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
             <div className="text-xs text-emerald-200 leading-relaxed">
-              <strong>Cam kết thuật toán:</strong> Trong mọi trận đấu, độ lệch <strong>Delta ≤ 1</strong> tuyệt đối (không bao giờ vượt quá 1). Với 8 thành viên chọn 9, 10 hoặc 11 trận, số trận sẽ được chia đều tối đa (mỗi người 4-5 trận hoặc 5-6 trận), hạn chế tối đa việc lặp lại đồng đội!
+              <strong>Cam kết thuật toán:</strong> Dù bất kỳ số trận nào (6, 8, 9, 10, 11...) luôn đảm bảo <strong>ít nhất 2 trận Đôi Nam</strong> (nếu đủ 4 nam) và <strong>ít nhất 2 trận Đôi Nữ</strong> (nếu đủ 4 nữ). 100% mọi trận đấu có độ lệch trình độ <strong>Delta ≤ 1</strong> tuyệt đối, chia đều lượt đấu cho tất cả thành viên!
             </div>
           </div>
         </div>
