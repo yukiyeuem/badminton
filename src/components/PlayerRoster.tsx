@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Player, Gender, RANK_DEFINITIONS, RankKey, getRankDefinitionByScore } from '../types/badminton';
+import { Player, Gender, RANK_DEFINITIONS, RankKey, getRankDefinitionByScore, Match } from '../types/badminton';
+import { calculatePlayerSetStats } from '../services/playerStatsService';
 import {
   Users,
   Plus,
@@ -12,26 +13,31 @@ import {
   Sparkles,
   Info,
   FileSpreadsheet,
+  BarChart3,
 } from 'lucide-react';
 
 interface PlayerRosterProps {
   players: Player[];
+  matches?: Match[];
   onAddPlayer: (player: Omit<Player, 'id' | 'playedCount' | 'pastPartners'>) => void;
   onUpdatePlayer: (id: string, updates: Partial<Player>) => void;
   onDeletePlayer: (id: string) => void;
   onLoadStandardPreset: () => void;
   onResetAllStats: () => void;
   onOpenImportModal: () => void;
+  onNavigateToStats?: () => void;
 }
 
 export const PlayerRoster: React.FC<PlayerRosterProps> = ({
   players,
+  matches = [],
   onAddPlayer,
   onUpdatePlayer,
   onDeletePlayer,
   onLoadStandardPreset,
   onResetAllStats,
   onOpenImportModal,
+  onNavigateToStats,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterGender, setFilterGender] = useState<'ALL' | Gender>('ALL');
@@ -91,6 +97,11 @@ export const PlayerRoster: React.FC<PlayerRosterProps> = ({
   const playerLookup = new Map<string, Player>();
   players.forEach((p) => playerLookup.set(p.id, p));
 
+  // Compute live set statistics for each player
+  const statsSummary = calculatePlayerSetStats(players, matches);
+  const statsMap = new Map<string, (typeof statsSummary.playerStatsList)[0]>();
+  statsSummary.playerStatsList.forEach((s) => statsMap.set(s.player.id, s));
+
   return (
     <div className="space-y-6">
       {/* Top Banner & Quick Presets */}
@@ -106,6 +117,16 @@ export const PlayerRoster: React.FC<PlayerRosterProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {onNavigateToStats && (
+            <button
+              onClick={onNavigateToStats}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold shadow transition-colors"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Thống Kê Set & BXH →</span>
+            </button>
+          )}
+
           <button
             onClick={onOpenImportModal}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition-colors"
@@ -229,7 +250,7 @@ export const PlayerRoster: React.FC<PlayerRosterProps> = ({
                 <th className="py-3 px-4">Họ và tên</th>
                 <th className="py-3 px-4">Giới tính</th>
                 <th className="py-3 px-4">Trình độ (Rank Score)</th>
-                <th className="py-3 px-4">Đã ra sân</th>
+                <th className="py-3 px-4">Số Set & Kết Quả</th>
                 <th className="py-3 px-4">Đồng đội cũ (pastPartners)</th>
                 <th className="py-3 px-4 text-right">Thao tác</th>
               </tr>
@@ -238,6 +259,7 @@ export const PlayerRoster: React.FC<PlayerRosterProps> = ({
               {filteredPlayers.map((player, idx) => {
                 const rankDef = getRankDefinitionByScore(player.rankScore);
                 const isEditing = editingId === player.id;
+                const stat = statsMap.get(player.id);
 
                 return (
                   <tr key={player.id} className="hover:bg-slate-800/40 transition-colors">
@@ -312,11 +334,35 @@ export const PlayerRoster: React.FC<PlayerRosterProps> = ({
                       )}
                     </td>
 
-                    {/* Played Count */}
+                    {/* Set Stats & Results */}
                     <td className="py-3 px-4">
-                      <span className="font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-emerald-400 border border-slate-700">
-                        {player.playedCount} trận
-                      </span>
+                      {stat ? (
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-emerald-400 border border-slate-700 text-xs">
+                              {stat.completedSets}/{stat.totalScheduledSets} set
+                            </span>
+                            {stat.completedSets > 0 && (
+                              <span className="text-[11px] font-mono font-semibold text-slate-300">
+                                {stat.wonSets}T - {stat.lostSets}B
+                              </span>
+                            )}
+                          </div>
+                          {stat.completedSets > 0 ? (
+                            <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                              Thắng: <strong className="text-amber-300">{stat.winRate}%</strong> • HS: {stat.pointDiff >= 0 ? `+${stat.pointDiff}` : stat.pointDiff}đ
+                            </div>
+                          ) : (
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              Chưa đấu xong set nào
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-emerald-400 border border-slate-700">
+                          {player.playedCount} trận
+                        </span>
+                      )}
                     </td>
 
                     {/* Past Partners */}

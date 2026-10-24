@@ -12,6 +12,7 @@ import {
   UserPlus,
   FileSpreadsheet,
   Sliders,
+  BarChart3,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -55,6 +56,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const navTabs = [
     { id: 'schedule', label: 'Lịch Thi Đấu & Trận', icon: Trophy },
+    { id: 'stats', label: 'Thống Kê Set & Điểm', icon: BarChart3 },
     { id: 'interteam', label: 'Chọn Cặp & Giao Lưu', icon: Swords },
     { id: 'courts', label: 'Bảng Sân Cầu Lông', icon: ShieldCheck },
     { id: 'players', label: 'Thành Viên Nhóm', icon: Users },

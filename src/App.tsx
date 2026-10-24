@@ -16,7 +16,8 @@ import { ValidationReport } from './components/ValidationReport';
 import { SpecModal } from './components/SpecModal';
 import { BulkMemberImportModal } from './components/BulkMemberImportModal';
 import { SessionConfigModal } from './components/SessionConfigModal';
-import { CheckCircle2, Sparkles, Trophy, Users, ShieldCheck, FileText, Swords, Sliders } from 'lucide-react';
+import { PlayerStatsView } from './components/PlayerStatsView';
+import { CheckCircle2, Sparkles, Trophy, Users, ShieldCheck, FileText, Swords, Sliders, BarChart3 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 export default function App() {
@@ -269,6 +270,17 @@ export default function App() {
             players={players}
             onUpdateMatchScore={handleUpdateMatchScore}
             onOpenSessionConfig={() => setIsSessionConfigOpen(true)}
+            onNavigateToStats={() => setActiveTab('stats')}
+          />
+        )}
+
+        {/* Tab: Player Set & Score Statistics */}
+        {activeTab === 'stats' && (
+          <PlayerStatsView
+            players={players}
+            matches={matches}
+            onUpdateMatchScore={handleUpdateMatchScore}
+            onNavigateToSchedule={() => setActiveTab('schedule')}
           />
         )}
 
@@ -293,12 +305,14 @@ export default function App() {
         {activeTab === 'players' && (
           <PlayerRoster
             players={players}
+            matches={matches}
             onAddPlayer={handleAddPlayer}
             onUpdatePlayer={handleUpdatePlayer}
             onDeletePlayer={handleDeletePlayer}
             onLoadStandardPreset={handleRunStandardTest}
             onResetAllStats={handleResetAllStats}
             onOpenImportModal={() => setIsImportModalOpen(true)}
+            onNavigateToStats={() => setActiveTab('stats')}
           />
         )}
 

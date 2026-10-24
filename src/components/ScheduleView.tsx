@@ -16,13 +16,18 @@ import {
   Swords,
   Medal,
   AlertCircle,
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+import { calculatePlayerSetStats } from '../services/playerStatsService';
 
 interface ScheduleViewProps {
   matches: Match[];
   players: Player[];
   onUpdateMatchScore: (matchId: string, gameScoreA: number, gameScoreB: number, status?: Match['status']) => void;
   onOpenSessionConfig?: () => void;
+  onNavigateToStats?: () => void;
 }
 
 export const ScheduleView: React.FC<ScheduleViewProps> = ({
@@ -30,10 +35,15 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   players,
   onUpdateMatchScore,
   onOpenSessionConfig,
+  onNavigateToStats,
 }) => {
   const [selectedPhase, setSelectedPhase] = useState<'ALL' | number>('ALL');
   const [selectedCourt, setSelectedCourt] = useState<'ALL' | number>('ALL');
   const [copied, setCopied] = useState(false);
+  const [showQuickStats, setShowQuickStats] = useState(false);
+
+  // Compute live set statistics for fast reference
+  const statsSummary = calculatePlayerSetStats(players, matches);
 
   // Player lookup map
   const playerMap = new Map<string, Player>();
@@ -148,6 +158,22 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
+          {/* Quick Player Set Stats Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowQuickStats(!showQuickStats)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all ${
+              showQuickStats
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-600/20'
+                : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+            }`}
+            title="Xem nhanh mỗi người đã đánh bao nhiêu set, thắng thua ra sao"
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Thống kê set ({statsSummary.totalCompletedMatches}/{statsSummary.totalMatches})</span>
+            {showQuickStats ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+
           {onOpenSessionConfig && (
             <button
               onClick={onOpenSessionConfig}
@@ -177,6 +203,66 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Expandable Quick Player Set Stats Grid */}
+      {showQuickStats && (
+        <div className="bg-slate-900/95 border border-emerald-500/30 rounded-2xl p-4 shadow-xl animate-in slide-in-from-top-3 duration-200">
+          <div className="flex items-center justify-between mb-3 border-b border-slate-800 pb-2.5">
+            <div className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-emerald-400" />
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                Thống Kê Số Set & Kết Quả Từng Cầu Thủ ({players.length} người)
+              </h3>
+            </div>
+            {onNavigateToStats && (
+              <button
+                type="button"
+                onClick={onNavigateToStats}
+                className="text-xs text-emerald-400 hover:underline font-semibold flex items-center gap-1"
+              >
+                <span>Xem BXH đầy đủ & chi tiết →</span>
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
+            {statsSummary.playerStatsList.map((stat, idx) => {
+              const rankDef = getRankDefinitionByScore(stat.player.rankScore);
+              return (
+                <div
+                  key={stat.player.id}
+                  className="bg-slate-950/80 border border-slate-800 hover:border-slate-700 rounded-xl p-2.5 flex flex-col justify-between transition-all"
+                >
+                  <div className="flex items-center justify-between gap-1 mb-1">
+                    <span className="font-bold text-slate-200 text-xs truncate">
+                      {stat.player.name}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      {stat.player.gender === 'MALE' ? '♂' : '♀'}
+                    </span>
+                  </div>
+
+                  <div className="text-[10px] text-slate-400 flex items-center justify-between mb-1">
+                    <span>Số set:</span>
+                    <span className="font-mono font-bold text-white">
+                      {stat.completedSets}/{stat.totalScheduledSets}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[10px] font-mono">
+                    <span className="text-emerald-400 font-bold">
+                      {stat.wonSets}T - {stat.lostSets}B
+                    </span>
+                    <span className="text-slate-400">
+                      {stat.completedSets > 0 ? `${stat.winRate}%` : '--'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Matches Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
