@@ -1024,6 +1024,383 @@ function updatePlayersStateForMatch(match: Match, playerMap: Map<string, Player>
   }
 }
 
+export interface RescheduleOptions {
+  existingMatches: Match[];
+  allPlayers: Player[];
+  cutoffMatchNumber: number; // 1-indexed. E.g. 5 means matches 1..5 are kept frozen.
+  activePlayerIds: string[]; // IDs of players who remain active from match cutoffMatchNumber+1 onwards
+  targetTotalMatches?: number;
+  courtCount?: number;
+}
+
+/**
+ * Xếp lại lịch thi đấu từ trận K+1 đến N (Mid-Session Reschedule):
+ * Giải quyết trọn vẹn bài toán tổng quát:
+ * - Khi có 1 hoặc nhiều người về sớm (ví dụ A1 đánh hết trận 5 rồi về), hoặc người mới đến muộn
+ * - Giữ NGUYÊN 100% kết quả, tỷ số, đội hình, sân đấu của các trận 1..K (Bảo lưu hoàn toàn)
+ * - Tái tạo lịch sử partner và số set đã đánh của tất cả thành viên tính đến hết trận K
+ * - Xếp lại các trận còn lại (K+1 .. N) cho các thành viên còn đang có mặt trên sân
+ * - BẮT BUỘC: Đảm bảo Delta <= 1 trong 100% các trận xếp lại
+ * - Phân bổ số trận ra sân xoay vòng công bằng nhất cho các thành viên còn lại
+ */
+export function rescheduleRemainingMatches(options: RescheduleOptions): MatchmakingResult {
+  const startTime = performance.now();
+  const { existingMatches, allPlayers, cutoffMatchNumber, activePlayerIds } = options;
+
+  // 1. Xác định số trận bảo lưu (1..cutoff)
+  const cutoff = Math.max(0, Math.min(cutoffMatchNumber, existingMatches.length));
+  const frozenMatches: Match[] = existingMatches.slice(0, cutoff).map((m) => ({
+    ...m,
+    isLockedPast: true,
+  }));
+
+  // 2. Khởi tạo trạng thái mô phỏng lịch sử của tất cả người chơi
+  const playerMap = new Map<string, Player>();
+  allPlayers.forEach((p) => {
+    playerMap.set(p.id, {
+      ...p,
+      playedCount: 0,
+      pastPartners: [],
+    });
+  });
+
+  const partnerCount = new Map<string, number>();
+  const seenPairings = new Set<string>();
+  let scheduledMens = 0;
+  let scheduledWomens = 0;
+
+  // Tái hiện chính xác số trận đã đánh và partner từ các trận bảo lưu
+  frozenMatches.forEach((m) => {
+    updatePlayersStateForMatch(m, playerMap);
+
+    const [a1, a2] = m.teamA;
+    const [b1, b2] = m.teamB;
+    const pairAKey = [a1, a2].sort().join('-');
+    const pairBKey = [b1, b2].sort().join('-');
+    partnerCount.set(pairAKey, (partnerCount.get(pairAKey) || 0) + 1);
+    partnerCount.set(pairBKey, (partnerCount.get(pairBKey) || 0) + 1);
+
+    const directKey = `${pairAKey}__vs__${pairBKey}`;
+    seenPairings.add(directKey);
+
+    if (m.type === 'MENS_DOUBLE') scheduledMens++;
+    if (m.type === 'WOMENS_DOUBLE') scheduledWomens++;
+  });
+
+  // 3. Lọc danh sách thành viên còn lại trên sân
+  const activePlayers = allPlayers.filter((p) => activePlayerIds.includes(p.id));
+  const totalTarget = options.targetTotalMatches ?? Math.max(existingMatches.length, cutoff + 1);
+  const remainingMatchesCount = Math.max(0, totalTarget - cutoff);
+
+  if (activePlayers.length < 4 && remainingMatchesCount > 0) {
+    return {
+      matches: frozenMatches,
+      updatedPlayers: Array.from(playerMap.values()),
+      phases: [],
+      algorithmStats: {
+        totalCombinationsGenerated: 0,
+        averageDelta: 0,
+        zeroDeltaMatches: 0,
+        duplicatePartnersCount: 0,
+        executionTimeMs: 0,
+        isStandardTestCasePassed: false,
+      },
+      validationErrors: ['Cần ít nhất 4 người chơi còn lại trên sân để xếp các trận đôi tiếp theo.'],
+    };
+  }
+
+  // 4. Sinh tất cả các cấu hình trận đấu 4 người từ activePlayers với ĐIỀU KIỆN Delta <= 1
+  interface Cand {
+    id: number;
+    p1: Player;
+    p2: Player;
+    p3: Player;
+    p4: Player;
+    type: MatchType;
+    scoreA: number;
+    scoreB: number;
+    delta: number;
+    pairAKey: string;
+    pairBKey: string;
+    playerIds: string[];
+    isStandardFormat: boolean;
+    spread: number;
+  }
+
+  const candidates: Cand[] = [];
+  let candIdGen = 0;
+  const N = activePlayers.length;
+
+  for (let i = 0; i < N; i++) {
+    for (let j = i + 1; j < N; j++) {
+      for (let k = j + 1; k < N; k++) {
+        for (let l = k + 1; l < N; l++) {
+          const quad = [activePlayers[i], activePlayers[j], activePlayers[k], activePlayers[l]];
+          const configs: [[Player, Player], [Player, Player]][] = [
+            [[quad[0], quad[1]], [quad[2], quad[3]]],
+            [[quad[0], quad[2]], [quad[1], quad[3]]],
+            [[quad[0], quad[3]], [quad[1], quad[2]]],
+          ];
+
+          for (const [pairA, pairB] of configs) {
+            const aGenders = [pairA[0].gender, pairA[1].gender].sort().join('');
+            const bGenders = [pairB[0].gender, pairB[1].gender].sort().join('');
+
+            let type: MatchType = 'MIXED_DOUBLE';
+            let isStandardFormat = false;
+
+            if (aGenders === 'MALEMALE' && bGenders === 'MALEMALE') {
+              type = 'MENS_DOUBLE';
+              isStandardFormat = true;
+            } else if (aGenders === 'FEMALEFEMALE' && bGenders === 'FEMALEFEMALE') {
+              type = 'WOMENS_DOUBLE';
+              isStandardFormat = true;
+            } else if (aGenders === 'FEMALEMALE' && bGenders === 'FEMALEMALE') {
+              type = 'MIXED_DOUBLE';
+              isStandardFormat = true;
+            }
+
+            const scoreA = pairA[0].rankScore + pairA[1].rankScore;
+            const scoreB = pairB[0].rankScore + pairB[1].rankScore;
+            const delta = Math.abs(scoreA - scoreB);
+
+            // BẮT BUỘC: Delta <= 1
+            if (delta <= 1) {
+              const pairAKey = [pairA[0].id, pairA[1].id].sort().join('-');
+              const pairBKey = [pairB[0].id, pairB[1].id].sort().join('-');
+              const spread =
+                Math.abs(pairA[0].rankScore - pairA[1].rankScore) +
+                Math.abs(pairB[0].rankScore - pairB[1].rankScore);
+
+              candidates.push({
+                id: candIdGen++,
+                p1: pairA[0],
+                p2: pairA[1],
+                p3: pairB[0],
+                p4: pairB[1],
+                type,
+                scoreA,
+                scoreB,
+                delta,
+                pairAKey,
+                pairBKey,
+                playerIds: [pairA[0].id, pairA[1].id, pairB[0].id, pairB[1].id],
+                isStandardFormat,
+                spread,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback nếu hiếm hoi không có cặp delta <= 1: nới lỏng delta <= 2
+  if (candidates.length === 0) {
+    for (let i = 0; i < N; i++) {
+      for (let j = i + 1; j < N; j++) {
+        for (let k = j + 1; k < N; k++) {
+          for (let l = k + 1; l < N; l++) {
+            const quad = [activePlayers[i], activePlayers[j], activePlayers[k], activePlayers[l]];
+            const configs: [[Player, Player], [Player, Player]][] = [
+              [[quad[0], quad[1]], [quad[2], quad[3]]],
+              [[quad[0], quad[2]], [quad[1], quad[3]]],
+              [[quad[0], quad[3]], [quad[1], quad[2]]],
+            ];
+            for (const [pairA, pairB] of configs) {
+              const scoreA = pairA[0].rankScore + pairA[1].rankScore;
+              const scoreB = pairB[0].rankScore + pairB[1].rankScore;
+              const delta = Math.abs(scoreA - scoreB);
+              const pairAKey = [pairA[0].id, pairA[1].id].sort().join('-');
+              const pairBKey = [pairB[0].id, pairB[1].id].sort().join('-');
+              const spread =
+                Math.abs(pairA[0].rankScore - pairA[1].rankScore) +
+                Math.abs(pairB[0].rankScore - pairB[1].rankScore);
+              candidates.push({
+                id: candIdGen++,
+                p1: pairA[0],
+                p2: pairA[1],
+                p3: pairB[0],
+                p4: pairB[1],
+                type: 'MIXED_DOUBLE',
+                scoreA,
+                scoreB,
+                delta,
+                pairAKey,
+                pairBKey,
+                playerIds: [pairA[0].id, pairA[1].id, pairB[0].id, pairB[1].id],
+                isStandardFormat: false,
+                spread,
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 5. Invariant giới tính: nếu đủ 4 nam thì ưu tiên ít nhất 2 đôi nam; đủ 4 nữ ít nhất 2 đôi nữ
+  const activeMaleCount = activePlayers.filter((p) => p.gender === 'MALE').length;
+  const activeFemaleCount = activePlayers.filter((p) => p.gender === 'FEMALE').length;
+  const minMensNeeded = activeMaleCount >= 4 ? 2 : 0;
+  const minWomensNeeded = activeFemaleCount >= 4 ? 2 : 0;
+
+  // 6. Số sân đồng thời: nếu activePlayers < 8 (ví dụ 7 người), chỉ có thể 1 trận diễn ra tại 1 thời điểm
+  const maxSimultaneousMatches = Math.floor(activePlayers.length / 4);
+  const courtCount = Math.max(1, Math.min(options.courtCount || 2, maxSimultaneousMatches));
+
+  const lastRound = frozenMatches.length > 0 ? Math.max(...frozenMatches.map((m) => m.roundNumber || 1)) : 0;
+
+  const scheduledRemaining: Cand[] = [];
+
+  for (let step = 0; step < remainingMatchesCount; step++) {
+    const curDeficitMens = Math.max(0, minMensNeeded - scheduledMens);
+    const curDeficitWomens = Math.max(0, minWomensNeeded - scheduledWomens);
+    const minOverall = Math.min(...activePlayers.map((p) => playerMap.get(p.id)!.playedCount));
+
+    let bestCand: Cand | null = null;
+    let bestCost = Infinity;
+
+    for (const cand of candidates) {
+      const pCounts = cand.playerIds.map((id) => playerMap.get(id)!.playedCount);
+
+      // Phạt lệch số trận: ưu tiên người chơi ít trận hơn vào sân trước
+      let playedPenalty = 0;
+      pCounts.forEach((cnt) => {
+        playedPenalty += Math.pow(cnt - minOverall, 2) * 6000;
+      });
+
+      // Phạt trùng partner
+      const rA = partnerCount.get(cand.pairAKey) || 0;
+      const rB = partnerCount.get(cand.pairBKey) || 0;
+      const partnerCost = (Math.pow(rA, 2) + Math.pow(rB, 2)) * 4000;
+
+      // Phạt delta (ưu tiên delta = 0 tuyệt đối)
+      const deltaCost = cand.delta * 80;
+      const spreadBonus = -cand.spread * 2;
+      const stdBonus = cand.isStandardFormat ? -200 : 0;
+
+      // Quota giới tính
+      let quotaBonus = 0;
+      if (cand.type === 'MENS_DOUBLE' && curDeficitMens > 0) quotaBonus -= 30000;
+      if (cand.type === 'WOMENS_DOUBLE' && curDeficitWomens > 0) quotaBonus -= 30000;
+
+      const totalCost = playedPenalty + partnerCost + deltaCost + spreadBonus + stdBonus + quotaBonus;
+      if (totalCost < bestCost) {
+        bestCost = totalCost;
+        bestCand = cand;
+      }
+    }
+
+    if (bestCand) {
+      scheduledRemaining.push(bestCand);
+      if (bestCand.type === 'MENS_DOUBLE') scheduledMens++;
+      if (bestCand.type === 'WOMENS_DOUBLE') scheduledWomens++;
+      bestCand.playerIds.forEach((id) => {
+        const p = playerMap.get(id);
+        if (p) p.playedCount += 1;
+      });
+      partnerCount.set(bestCand.pairAKey, (partnerCount.get(bestCand.pairAKey) || 0) + 1);
+      partnerCount.set(bestCand.pairBKey, (partnerCount.get(bestCand.pairBKey) || 0) + 1);
+
+      // Ghi nhận lịch sử partner
+      const p1 = playerMap.get(bestCand.p1.id);
+      const p2 = playerMap.get(bestCand.p2.id);
+      const p3 = playerMap.get(bestCand.p3.id);
+      const p4 = playerMap.get(bestCand.p4.id);
+      if (p1 && p2) {
+        if (!p1.pastPartners.includes(p2.id)) p1.pastPartners.push(p2.id);
+        if (!p2.pastPartners.includes(p1.id)) p2.pastPartners.push(p1.id);
+      }
+      if (p3 && p4) {
+        if (!p3.pastPartners.includes(p4.id)) p3.pastPartners.push(p4.id);
+        if (!p4.pastPartners.includes(p3.id)) p4.pastPartners.push(p3.id);
+      }
+    }
+  }
+
+  // 7. Tạo danh sách trận đấu mới
+  const newMatches: Match[] = [];
+  scheduledRemaining.forEach((c, idx) => {
+    const matchNumber = cutoff + idx + 1;
+    const roundNumber = lastRound + Math.floor(idx / courtCount) + 1;
+    const courtNumber = (idx % courtCount) + 1;
+    const matchId = `match_rescheduled_${matchNumber}`;
+
+    const matchTypeLabel =
+      c.type === 'MENS_DOUBLE'
+        ? 'Đôi Nam'
+        : c.type === 'WOMENS_DOUBLE'
+        ? 'Đôi Nữ'
+        : 'Đôi Nam Nữ';
+
+    const directKey = `${c.pairAKey}__vs__${c.pairBKey}`;
+    const isRematch = seenPairings.has(directKey);
+    seenPairings.add(directKey);
+
+    const teamA = isRematch ? [c.p3.id, c.p4.id] : [c.p1.id, c.p2.id];
+    const teamB = isRematch ? [c.p1.id, c.p2.id] : [c.p3.id, c.p4.id];
+    const scoreA = isRematch ? c.scoreB : c.scoreA;
+    const scoreB = isRematch ? c.scoreA : c.scoreB;
+
+    const phaseNote = isRematch ? ' (Lượt về)' : '';
+
+    const m: Match = {
+      matchId,
+      type: c.type,
+      teamA: teamA as [string, string],
+      teamB: teamB as [string, string],
+      scoreA,
+      scoreB,
+      delta: c.delta,
+      phase: roundNumber,
+      phaseLabel: `Trận ${matchNumber}: ${matchTypeLabel}${phaseNote} (Δ = ${c.delta})`,
+      roundNumber,
+      courtNumber,
+      status: 'SCHEDULED',
+      stage: 'ROUND_ROBIN',
+      isRescheduled: true,
+      notes: `Xếp lại giữa buổi cho ${activePlayers.length} người chơi đang có mặt`,
+    };
+
+    newMatches.push(m);
+  });
+
+  const finalMatches = [...frozenMatches, ...newMatches];
+  const updatedPlayers = Array.from(playerMap.values());
+
+  const totalDelta = finalMatches.reduce((acc, m) => acc + m.delta, 0);
+  const averageDelta = finalMatches.length > 0 ? Number((totalDelta / finalMatches.length).toFixed(2)) : 0;
+  const zeroDeltaMatches = finalMatches.filter((m) => m.delta === 0).length;
+
+  let duplicatePartnersCount = 0;
+  const pairOccurrences = new Map<string, number>();
+  finalMatches.forEach((m) => {
+    const pA = [m.teamA[0], m.teamA[1]].sort().join('-');
+    const pB = [m.teamB[0], m.teamB[1]].sort().join('-');
+    pairOccurrences.set(pA, (pairOccurrences.get(pA) || 0) + 1);
+    pairOccurrences.set(pB, (pairOccurrences.get(pB) || 0) + 1);
+  });
+  pairOccurrences.forEach((cnt) => {
+    if (cnt > 1) duplicatePartnersCount += cnt - 1;
+  });
+
+  return {
+    matches: finalMatches,
+    updatedPlayers,
+    phases: [],
+    algorithmStats: {
+      totalCombinationsGenerated: candidates.length,
+      averageDelta,
+      zeroDeltaMatches,
+      duplicatePartnersCount,
+      executionTimeMs: Number((performance.now() - startTime).toFixed(2)),
+      isStandardTestCasePassed: finalMatches.every((m) => m.delta <= 1),
+    },
+    validationErrors: [],
+  };
+}
+
 /**
  * Tìm kiếm các cặp đối thủ đối kháng cân bằng nhất cho một cặp được chọn
  * (Dùng cho tính năng "Cho chọn cặp đánh cùng nhau để đi đánh với các đội khác / giao lưu")

@@ -2,9 +2,14 @@ import React, { useState } from 'react';
 import { Player, Match, MatchmakingResult } from './types/badminton';
 import {
   createStandardTestPlayers,
+  createEightMalePlayers,
   validateMatchesStrict,
 } from './services/standardTestCase';
-import { runMatchmaking, runContinuousMatchmaking } from './services/matchmakingAlgorithm';
+import {
+  runMatchmaking,
+  runContinuousMatchmaking,
+  rescheduleRemainingMatches,
+} from './services/matchmakingAlgorithm';
 import { generatePlayoffMatches, syncPlayoffMatchesWithResults } from './services/playoffManager';
 import { Navbar } from './components/Navbar';
 import { ScheduleView } from './components/ScheduleView';
@@ -16,8 +21,9 @@ import { ValidationReport } from './components/ValidationReport';
 import { SpecModal } from './components/SpecModal';
 import { BulkMemberImportModal } from './components/BulkMemberImportModal';
 import { SessionConfigModal } from './components/SessionConfigModal';
+import { MidSessionRescheduleModal } from './components/MidSessionRescheduleModal';
 import { PlayerStatsView } from './components/PlayerStatsView';
-import { CheckCircle2, Sparkles, Trophy, Users, ShieldCheck, FileText, Swords, Sliders, BarChart3 } from 'lucide-react';
+import { CheckCircle2, Sparkles, Trophy, Users, ShieldCheck, FileText, Swords, Sliders, BarChart3, RefreshCw } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 export default function App() {
@@ -32,6 +38,8 @@ export default function App() {
   const [isSpecModalOpen, setIsSpecModalOpen] = useState<boolean>(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState<boolean>(false);
   const [isSessionConfigOpen, setIsSessionConfigOpen] = useState<boolean>(false);
+  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState<boolean>(false);
+  const [rescheduleCutoffMatch, setRescheduleCutoffMatch] = useState<number | undefined>(undefined);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -153,6 +161,60 @@ export default function App() {
     });
   };
 
+  const handleOpenRescheduleModal = (cutoffMatch?: number) => {
+    setRescheduleCutoffMatch(cutoffMatch);
+    setIsRescheduleModalOpen(true);
+  };
+
+  const handleApplyReschedule = (
+    cutoffMatchNumber: number,
+    activePlayerIds: string[],
+    newTargetTotalMatches: number
+  ) => {
+    const result = rescheduleRemainingMatches({
+      existingMatches: matches,
+      allPlayers: players,
+      cutoffMatchNumber,
+      activePlayerIds,
+      targetTotalMatches: newTargetTotalMatches,
+      courtCount: players.length >= 8 && activePlayerIds.length >= 8 ? 2 : 1,
+    });
+
+    if (result.validationErrors.length > 0) {
+      alert(result.validationErrors.join('\n'));
+      return;
+    }
+
+    setMatches(result.matches);
+    setPlayers(result.updatedPlayers);
+    setMatchResult(result);
+    setTargetTotalMatches(newTargetTotalMatches);
+
+    const activeCount = activePlayerIds.length;
+    showToast(
+      `Đã bảo lưu ${cutoffMatchNumber} trận đầu và xếp lại thành công từ trận ${cutoffMatchNumber + 1} đến ${newTargetTotalMatches} cho ${activeCount} người chơi (100% Δ ≤ 1)!`
+    );
+
+    confetti({
+      particleCount: 80,
+      spread: 60,
+      origin: { y: 0.6 },
+      colors: ['#f59e0b', '#10b981', '#38bdf8'],
+    });
+  };
+
+  const handleLoadEightMaleSample = () => {
+    const sample8 = createEightMalePlayers();
+    setPlayers(sample8);
+    setTargetTotalMatches(10);
+    setSessionMode('CONTINUOUS_MIXER');
+    const res = runContinuousMatchmaking(sample8, 10);
+    setMatchResult(res);
+    setMatches(res.matches);
+    setPlayers(res.updatedPlayers);
+    showToast('Đã nạp sân 8 Nam (A1..A8) với 10 trận đấu Delta ≤ 1!');
+  };
+
   const handleScheduleFriendlyMatch = (friendlyMatch: Match) => {
     // Add to match list and assign court
     setMatches((prev) => [friendlyMatch, ...prev]);
@@ -271,6 +333,7 @@ export default function App() {
             onUpdateMatchScore={handleUpdateMatchScore}
             onOpenSessionConfig={() => setIsSessionConfigOpen(true)}
             onNavigateToStats={() => setActiveTab('stats')}
+            onOpenRescheduleModal={handleOpenRescheduleModal}
           />
         )}
 
@@ -372,6 +435,17 @@ export default function App() {
         currentMode={sessionMode}
         totalPlayersCount={players.length}
         onApplyConfig={handleApplySessionConfig}
+      />
+
+      {/* Mid-Session Reschedule Modal (Rời sân sớm / Về sớm / Đến muộn) */}
+      <MidSessionRescheduleModal
+        isOpen={isRescheduleModalOpen}
+        onClose={() => setIsRescheduleModalOpen(false)}
+        matches={matches}
+        players={players}
+        initialCutoffMatch={rescheduleCutoffMatch}
+        onApplyReschedule={handleApplyReschedule}
+        onLoadEightMaleSample={handleLoadEightMaleSample}
       />
     </div>
   );

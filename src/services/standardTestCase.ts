@@ -1,6 +1,24 @@
 import { Player, Match } from '../types/badminton';
 
 /**
+ * Test case mẫu 8 Nam (A1 -> A8) theo kịch bản:
+ * A1 (5đ), A2 (5đ), A3 (4đ), A4 (3đ), A5 (3đ), A6 (2đ), A7 (2đ), A8 (1đ)
+ * Thử nghiệm trường hợp: A1 đánh hết trận 5 rồi về sớm, xếp lại trận 6 -> 10
+ */
+export function createEightMalePlayers(): Player[] {
+  return [
+    { id: 'M_A1', name: 'Nam A1 (Về sau T5)', gender: 'MALE', rankScore: 5, playedCount: 0, pastPartners: [], clubNote: 'Đánh hết trận 5 rồi đi về' },
+    { id: 'M_A2', name: 'Nam A2', gender: 'MALE', rankScore: 5, playedCount: 0, pastPartners: [], clubNote: 'TBK - Công lưới uy lực' },
+    { id: 'M_A3', name: 'Nam A3', gender: 'MALE', rankScore: 4, playedCount: 0, pastPartners: [], clubNote: 'TB - Điều cầu góc sân' },
+    { id: 'M_A4', name: 'Nam A4', gender: 'MALE', rankScore: 3, playedCount: 0, pastPartners: [], clubNote: 'TBY - Phản tạt nhanh' },
+    { id: 'M_A5', name: 'Nam A5', gender: 'MALE', rankScore: 3, playedCount: 0, pastPartners: [], clubNote: 'TBY - Bền bỉ sân sau' },
+    { id: 'M_A6', name: 'Nam A6', gender: 'MALE', rankScore: 2, playedCount: 0, pastPartners: [], clubNote: 'Yếu - Thủ cầu tốt' },
+    { id: 'M_A7', name: 'Nam A7', gender: 'MALE', rankScore: 2, playedCount: 0, pastPartners: [], clubNote: 'Yếu - Đang rèn luyện' },
+    { id: 'M_A8', name: 'Nam A8', gender: 'MALE', rankScore: 1, playedCount: 0, pastPartners: [], clubNote: 'Newbie - Mới chơi' },
+  ];
+}
+
+/**
  * Section 4: Test Case Tiêu chuẩn (16 người - 8 Trận) from spec
  * Nam (8): 2 TBK (5đ), 4 TBY (3đ), 2 Yếu (2đ)
  * Nữ (8): 2 TBY (3đ), 4 Yếu (2đ), 2 Newbie (1đ)

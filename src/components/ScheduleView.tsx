@@ -19,6 +19,9 @@ import {
   BarChart3,
   ChevronDown,
   ChevronUp,
+  Lock,
+  RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 import { calculatePlayerSetStats } from '../services/playerStatsService';
 
@@ -28,6 +31,7 @@ interface ScheduleViewProps {
   onUpdateMatchScore: (matchId: string, gameScoreA: number, gameScoreB: number, status?: Match['status']) => void;
   onOpenSessionConfig?: () => void;
   onNavigateToStats?: () => void;
+  onOpenRescheduleModal?: (cutoffMatchNumber?: number) => void;
 }
 
 export const ScheduleView: React.FC<ScheduleViewProps> = ({
@@ -36,6 +40,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
   onUpdateMatchScore,
   onOpenSessionConfig,
   onNavigateToStats,
+  onOpenRescheduleModal,
 }) => {
   const [selectedPhase, setSelectedPhase] = useState<'ALL' | number>('ALL');
   const [selectedCourt, setSelectedCourt] = useState<'ALL' | number>('ALL');
@@ -185,6 +190,17 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
             </button>
           )}
 
+          {onOpenRescheduleModal && (
+            <button
+              onClick={() => onOpenRescheduleModal()}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/40 text-xs text-amber-300 font-semibold transition-colors"
+              title="Thành viên về sớm (ví dụ A1 về sau trận 5) hoặc đến muộn? Tự động xếp lại các trận còn lại mà không làm mất tỷ số các trận trước"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
+              <span>Xếp lại giữa buổi (Về sớm/Muộn)</span>
+            </button>
+          )}
+
           <button
             onClick={handleCopySchedule}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs text-slate-200 font-medium transition-colors"
@@ -285,6 +301,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
           const gA = m.gameScoreA ?? 0;
           const gB = m.gameScoreB ?? 0;
           const isDone = m.status === 'COMPLETED';
+          const matchSeqNum = matches.findIndex((orig) => orig.matchId === m.matchId) + 1;
 
           return (
             <div
@@ -353,6 +370,26 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                         Δ = {m.delta}
                       </span>
                     )
+                  )}
+
+                  {m.isLockedPast && (
+                    <span
+                      className="flex items-center gap-1 text-[10px] font-bold text-slate-300 bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700 shrink-0"
+                      title="Trận đấu thuộc nhóm bảo lưu kết quả, không thay đổi"
+                    >
+                      <Lock className="w-2.5 h-2.5 text-emerald-400" />
+                      <span>Bảo lưu</span>
+                    </span>
+                  )}
+
+                  {m.isRescheduled && (
+                    <span
+                      className="flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/30 shrink-0"
+                      title="Trận đấu được xếp lại linh hoạt giữa buổi theo sĩ số còn lại"
+                    >
+                      <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                      <span>Xếp lại (Δ ≤ 1)</span>
+                    </span>
                   )}
                 </div>
               </div>
@@ -644,6 +681,24 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                     )}
                   </div>
                 </div>
+
+                {/* Mid-Session Reschedule Shortcut Link */}
+                {onOpenRescheduleModal && matchSeqNum < matches.length && (
+                  <div className="pt-2 border-t border-slate-800/40 flex items-center justify-between text-[11px]">
+                    <span className="text-[10px] text-slate-500">
+                      {m.isLockedPast ? '✓ Đã bảo lưu kết quả' : ''}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenRescheduleModal(matchSeqNum)}
+                      className="text-[11px] text-amber-400/90 hover:text-amber-300 hover:underline flex items-center gap-1 font-semibold ml-auto"
+                      title={`Bảo lưu từ Trận 1 đến Trận ${matchSeqNum}, xếp lại từ Trận ${matchSeqNum + 1} đến hết (ví dụ khi có người về sớm)`}
+                    >
+                      <RefreshCw className="w-3 h-3 text-amber-400" />
+                      <span>Xếp lại từ sau Trận {matchSeqNum} (Trận {matchSeqNum + 1} → {matches.length})...</span>
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           );

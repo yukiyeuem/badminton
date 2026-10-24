@@ -137,6 +137,8 @@ export interface Match {
     matchLabel: string;
     condition: 'WINNER' | 'LOSER';
   };
+  isLockedPast?: boolean; // Matches 1..K preserved from past results
+  isRescheduled?: boolean; // Matches K+1..N rescheduled mid-session
 }
 
 export interface MatchmakingResult {
