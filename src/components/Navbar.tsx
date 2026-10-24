@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Swords,
   UserPlus,
+  FileSpreadsheet,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -105,11 +106,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={onOpenImportModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700/40 hover:bg-emerald-700/60 border border-emerald-500/40 text-xs font-semibold text-emerald-300 transition-colors"
-            title="Điền hoặc dán danh sách thành viên nhóm nhanh"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white shadow-md shadow-emerald-950/40 transition-colors"
+            title="Import file Excel (.xlsx / .csv) hoặc điền nhanh danh sách thành viên nhóm"
           >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Điền Nhóm Nhanh</span>
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Import Excel / Nạp Nhóm</span>
           </button>
 
           <button

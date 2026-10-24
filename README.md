@@ -19,7 +19,9 @@
    - **Lượt 2 (Mixed Doubles):** Đôi Nam Nữ hoàn toàn đổi mới partner.
 
 4. **Tính năng mở rộng:**
-   - **Điền / Dán danh sách nhóm nhanh (Bulk Import):** Hỗ trợ nhập danh sách thành viên dạng text hoặc dạng bảng.
+   - **Nhập file Excel (.xlsx / .xls / .csv):** Kéo thả hoặc tải file Excel chứa Họ tên, Giới tính, Trình độ; tự động nhận diện header và phân tích điểm để xếp trận.
+   - **Tải file mẫu Excel (.xlsx):** Cung cấp sẵn file mẫu chuẩn để câu lạc bộ điền danh sách nhanh chóng.
+   - **Điền / Dán danh sách nhóm nhanh (Bulk Import):** Hỗ trợ dán text nhiều dòng hoặc nhập theo hàng bảng.
    - **Chọn cặp đi giao lưu / Thách đấu liên đội (Inter-Team Matchmaking):** Chọn 2 người cụ thể trong nhóm và tự động tìm kiếm đối thủ có trình độ tương đương nhất ($\Delta \approx 0$).
    - **Bảng điều khiển sân trực tiếp (Live Court Arena):** Sơ đồ sân cầu lông SVG trực quan, chấm điểm live, chỉ báo quyền giao cầu.
 
