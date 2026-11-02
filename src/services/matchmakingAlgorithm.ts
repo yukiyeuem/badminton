@@ -464,6 +464,7 @@ export function runContinuousMatchmaking(
   };
 
   const getMatchedLockedPairName = (pairA: [Player, Player], pairB: [Player, Player]): string | undefined => {
+    const names: string[] = [];
     for (const lp of lockedPairs) {
       const inA =
         (pairA[0].id === lp.player1Id && pairA[1].id === lp.player2Id) ||
@@ -471,9 +472,9 @@ export function runContinuousMatchmaking(
       const inB =
         (pairB[0].id === lp.player1Id && pairB[1].id === lp.player2Id) ||
         (pairB[0].id === lp.player2Id && pairB[1].id === lp.player1Id);
-      if (inA || inB) return lp.name;
+      if (inA || inB) names.push(lp.name);
     }
-    return undefined;
+    return names.length > 0 ? names.join(' vs ') : undefined;
   };
 
   const candidates: Cand[] = [];
@@ -613,8 +614,11 @@ export function runContinuousMatchmaking(
     return p1?.gender === 'FEMALE' && p2?.gender === 'FEMALE';
   });
 
-  const canScheduleMens = freeMales >= 4 || (hasLockedMensPair && freeMales >= 2);
-  const canScheduleWomens = freeFemales >= 4 || (hasLockedWomensPair && freeFemales >= 2);
+  const hasMensCandidates = candidates.some((c) => c.type === 'MENS_DOUBLE');
+  const hasWomensCandidates = candidates.some((c) => c.type === 'WOMENS_DOUBLE');
+
+  const canScheduleMens = hasMensCandidates && players.filter((p) => p.gender === 'MALE').length >= 4;
+  const canScheduleWomens = hasWomensCandidates && players.filter((p) => p.gender === 'FEMALE').length >= 4;
 
   const minMensNeeded = canScheduleMens ? Math.min(2, targetMatches) : 0;
   const minWomensNeeded = canScheduleWomens ? Math.min(2, Math.max(0, targetMatches - minMensNeeded)) : 0;
@@ -1174,6 +1178,7 @@ export function rescheduleRemainingMatches(options: RescheduleOptions): Matchmak
     playerIds: string[];
     isStandardFormat: boolean;
     spread: number;
+    lockedPairName?: string;
   }
 
   const candidates: Cand[] = [];
@@ -1198,6 +1203,20 @@ export function rescheduleRemainingMatches(options: RescheduleOptions): Matchmak
       if (!inA && !inB) return false;
     }
     return true;
+  };
+
+  const getMatchedLockedPairName = (pairA: [Player, Player], pairB: [Player, Player]): string | undefined => {
+    const names: string[] = [];
+    for (const lp of lockedPairs) {
+      const inA =
+        (pairA[0].id === lp.player1Id && pairA[1].id === lp.player2Id) ||
+        (pairA[0].id === lp.player2Id && pairA[1].id === lp.player1Id);
+      const inB =
+        (pairB[0].id === lp.player1Id && pairB[1].id === lp.player2Id) ||
+        (pairB[0].id === lp.player2Id && pairB[1].id === lp.player1Id);
+      if (inA || inB) names.push(lp.name);
+    }
+    return names.length > 0 ? names.join(' vs ') : undefined;
   };
 
   for (let i = 0; i < N; i++) {
@@ -1257,6 +1276,7 @@ export function rescheduleRemainingMatches(options: RescheduleOptions): Matchmak
                 playerIds: [pairA[0].id, pairA[1].id, pairB[0].id, pairB[1].id],
                 isStandardFormat,
                 spread,
+                lockedPairName: getMatchedLockedPairName(pairA, pairB),
               });
             }
           }
@@ -1430,7 +1450,9 @@ export function rescheduleRemainingMatches(options: RescheduleOptions): Matchmak
       status: 'SCHEDULED',
       stage: 'ROUND_ROBIN',
       isRescheduled: true,
-      notes: `Xếp lại giữa buổi cho ${activePlayers.length} người chơi đang có mặt`,
+      notes: c.lockedPairName
+        ? `⭐ Cặp cố định: ${c.lockedPairName} • Xếp lại giữa buổi`
+        : `Xếp lại giữa buổi cho ${activePlayers.length} người chơi đang có mặt`,
     };
 
     newMatches.push(m);

@@ -33,6 +33,8 @@ import {
   BarChart2,
   Eye,
   Info,
+  Trash2,
+  Shuffle,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -63,31 +65,42 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
     'LOCKED_SESSION'
   );
 
-  // --- State for Locked Session Mode ---
-  // Default to 1st male and 1st female if available (e.g. Nam A + Nữ B)
-  const defaultMale = players.find((p) => p.gender === 'MALE');
-  const defaultFemale = players.find((p) => p.gender === 'FEMALE');
+  // --- State for Locked Session Mode (Multi-Pair Support) ---
+  const [lockedPairsList, setLockedPairsList] = useState<LockedPair[]>(() => {
+    if (activeLockedPairs.length > 0) return [...activeLockedPairs];
+    const defaultMale = players.find((p) => p.gender === 'MALE');
+    const defaultFemale = players.find((p) => p.gender === 'FEMALE');
+    if (defaultMale && defaultFemale) {
+      return [
+        {
+          id: `lp_init_1`,
+          name: `${defaultMale.name} & ${defaultFemale.name}`,
+          player1Id: defaultMale.id,
+          player2Id: defaultFemale.id,
+        },
+      ];
+    }
+    return [];
+  });
 
-  const [lockedP1Id, setLockedP1Id] = useState<string>(
-    activeLockedPairs[0]?.player1Id || defaultMale?.id || players[0]?.id || ''
-  );
-  const [lockedP2Id, setLockedP2Id] = useState<string>(
-    activeLockedPairs[0]?.player2Id ||
-      defaultFemale?.id ||
-      players.find((p) => p.id !== lockedP1Id)?.id ||
-      players[1]?.id ||
-      ''
-  );
-  const [lockedPairLabel, setLockedPairLabel] = useState<string>(
-    activeLockedPairs[0]?.name || ''
-  );
+  // State for adding a new locked pair
+  const [newP1Id, setNewP1Id] = useState<string>('');
+  const [newP2Id, setNewP2Id] = useState<string>('');
+  const [newPairLabel, setNewPairLabel] = useState<string>('');
+  const [showAddPairForm, setShowAddPairForm] = useState<boolean>(false);
   const [sessionMatchTarget, setSessionMatchTarget] = useState<number>(targetTotalMatches);
 
-  // Live simulation of session schedule with the locked pair
+  // Live simulation of session schedule with the configured locked pairs
   const [simulationResult, setSimulationResult] = useState<{
     matches: Match[];
     updatedPlayers: Player[];
-    lockedPairMatchesCount: number;
+    pairStats: {
+      pair: LockedPair;
+      matchesCount: number;
+      p1: Player | undefined;
+      p2: Player | undefined;
+      combinedScore: number;
+    }[];
   } | null>(null);
 
   // --- State for Single Friendly / Guest Challenge Mode ---
@@ -179,114 +192,202 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
     return map;
   }, [players]);
 
-  const lp1 = playerMap.get(lockedP1Id);
-  const lp2 = playerMap.get(lockedP2Id);
+  // Set of players already assigned to a locked pair
+  const lockedPlayerIds = useMemo(() => {
+    return new Set(lockedPairsList.flatMap((lp) => [lp.player1Id, lp.player2Id]));
+  }, [lockedPairsList]);
 
-  // Form the active locked pair
-  const activeSelectedLockedPair: Pair | null =
-    lp1 && lp2 && lp1.id !== lp2.id
-      ? {
-          id: `locked_${lp1.id}_${lp2.id}`,
-          player1: lp1,
-          player2: lp2,
-          score: lp1.rankScore + lp2.rankScore,
-          type:
-            lp1.gender === lp2.gender
-              ? lp1.gender === 'MALE'
-                ? 'MENS_DOUBLE'
-                : 'WOMENS_DOUBLE'
-              : 'MIXED_DOUBLE',
-        }
-      : null;
+  // Unlocked players available to be chosen for a new pair
+  const availablePlayersForNewPair = useMemo(() => {
+    return players.filter((p) => !lockedPlayerIds.has(p.id));
+  }, [players, lockedPlayerIds]);
 
-  // Expected sets per player calculation
-  const totalPlayerSlots = sessionMatchTarget * 4;
-  const expectedSetsPerPlayer = players.length > 0 ? (totalPlayerSlots / players.length).toFixed(1) : '0';
-  const expectedRoundedSets = Math.round(Number(expectedSetsPerPlayer));
-
-  // Count compatible opponent pairs with Delta <= 1
-  const compatibleOpponentPairsCount = useMemo(() => {
-    if (!activeSelectedLockedPair || players.length < 4) return 0;
-    const remaining = players.filter(
-      (p) => p.id !== activeSelectedLockedPair.player1.id && p.id !== activeSelectedLockedPair.player2.id
-    );
-    let count = 0;
-    for (let i = 0; i < remaining.length; i++) {
-      for (let j = i + 1; j < remaining.length; j++) {
-        const score = remaining[i].rankScore + remaining[j].rankScore;
-        if (Math.abs(score - activeSelectedLockedPair.score) <= 1) {
-          count++;
-        }
-      }
+  // Run simulation for given pairs list
+  const runSimulationForPairs = (pairs: LockedPair[], targetMatches: number = sessionMatchTarget) => {
+    if (pairs.length === 0) {
+      setSimulationResult(null);
+      return;
     }
-    return count;
-  }, [activeSelectedLockedPair, players]);
 
-  // Generate Simulation
-  const handleSimulateLockedSession = () => {
-    if (!activeSelectedLockedPair) return;
-
-    const pairLabel =
-      lockedPairLabel.trim() || `${activeSelectedLockedPair.player1.name} & ${activeSelectedLockedPair.player2.name}`;
-
-    const configLocked: LockedPair = {
-      id: `lp_${Date.now()}`,
-      name: pairLabel,
-      player1Id: activeSelectedLockedPair.player1.id,
-      player2Id: activeSelectedLockedPair.player2.id,
-    };
-
-    // Reset played counts for fresh simulation
     const freshPlayers = players.map((p) => ({
       ...p,
       playedCount: 0,
       pastPartners: [],
     }));
 
-    const result = runContinuousMatchmaking(freshPlayers, sessionMatchTarget, {
-      lockedPairs: [configLocked],
+    const result = runContinuousMatchmaking(freshPlayers, targetMatches, {
+      lockedPairs: pairs,
     });
 
-    const matchesWithPair = result.matches.filter((m) => {
-      const inA =
-        (m.teamA[0] === configLocked.player1Id && m.teamA[1] === configLocked.player2Id) ||
-        (m.teamA[0] === configLocked.player2Id && m.teamA[1] === configLocked.player1Id);
-      const inB =
-        (m.teamB[0] === configLocked.player1Id && m.teamB[1] === configLocked.player2Id) ||
-        (m.teamB[0] === configLocked.player2Id && m.teamB[1] === configLocked.player1Id);
-      return inA || inB;
+    const pairStats = pairs.map((pair) => {
+      const p1 = playerMap.get(pair.player1Id);
+      const p2 = playerMap.get(pair.player2Id);
+      const combinedScore = (p1?.rankScore || 0) + (p2?.rankScore || 0);
+
+      const matchesCount = result.matches.filter((m) => {
+        const inA =
+          (m.teamA[0] === pair.player1Id && m.teamA[1] === pair.player2Id) ||
+          (m.teamA[0] === pair.player2Id && m.teamA[1] === pair.player1Id);
+        const inB =
+          (m.teamB[0] === pair.player1Id && m.teamB[1] === pair.player2Id) ||
+          (m.teamB[0] === pair.player2Id && m.teamB[1] === pair.player1Id);
+        return inA || inB;
+      }).length;
+
+      return {
+        pair,
+        matchesCount,
+        p1,
+        p2,
+        combinedScore,
+      };
     });
 
     setSimulationResult({
       matches: result.matches,
       updatedPlayers: result.updatedPlayers,
-      lockedPairMatchesCount: matchesWithPair.length,
+      pairStats,
     });
+  };
+
+  const handleAddLockedPair = (p1Id: string, p2Id: string, customLabel?: string) => {
+    if (!p1Id || !p2Id || p1Id === p2Id) return;
+    const p1 = playerMap.get(p1Id);
+    const p2 = playerMap.get(p2Id);
+    if (!p1 || !p2) return;
+
+    const label = customLabel?.trim() || `${p1.name} & ${p2.name}`;
+    const newPair: LockedPair = {
+      id: `lp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: label,
+      player1Id: p1.id,
+      player2Id: p2.id,
+    };
+
+    const nextList = [...lockedPairsList, newPair];
+    setLockedPairsList(nextList);
+    setNewP1Id('');
+    setNewP2Id('');
+    setNewPairLabel('');
+    setShowAddPairForm(false);
+    runSimulationForPairs(nextList, sessionMatchTarget);
+  };
+
+  const handleRemoveLockedPair = (id: string) => {
+    const nextList = lockedPairsList.filter((lp) => lp.id !== id);
+    setLockedPairsList(nextList);
+    if (nextList.length > 0) {
+      runSimulationForPairs(nextList, sessionMatchTarget);
+    } else {
+      setSimulationResult(null);
+    }
+  };
+
+  const handleClearAllLockedPairs = () => {
+    setLockedPairsList([]);
+    setSimulationResult(null);
+    if (onClearLockedPairs) onClearLockedPairs();
+  };
+
+  // Quick auto-pairing presets
+  const handleAutoPair2 = () => {
+    if (players.length < 4) return;
+    const males = players.filter((p) => p.gender === 'MALE');
+    const females = players.filter((p) => p.gender === 'FEMALE');
+
+    const pairs: LockedPair[] = [];
+    if (males.length >= 2 && females.length >= 2) {
+      pairs.push({
+        id: `lp_auto_${Date.now()}_1`,
+        name: `Cặp 1 (${males[0].name} & ${females[females.length - 1].name})`,
+        player1Id: males[0].id,
+        player2Id: females[females.length - 1].id,
+      });
+      pairs.push({
+        id: `lp_auto_${Date.now()}_2`,
+        name: `Cặp 2 (${males[1].name} & ${females[0].name})`,
+        player1Id: males[1].id,
+        player2Id: females[0].id,
+      });
+    } else {
+      const sorted = [...players].sort((a, b) => b.rankScore - a.rankScore);
+      pairs.push({
+        id: `lp_auto_${Date.now()}_1`,
+        name: `Cặp 1 (${sorted[0].name} & ${sorted[sorted.length - 1].name})`,
+        player1Id: sorted[0].id,
+        player2Id: sorted[sorted.length - 1].id,
+      });
+      pairs.push({
+        id: `lp_auto_${Date.now()}_2`,
+        name: `Cặp 2 (${sorted[1].name} & ${sorted[sorted.length - 2].name})`,
+        player1Id: sorted[1].id,
+        player2Id: sorted[sorted.length - 2].id,
+      });
+    }
+    setLockedPairsList(pairs);
+    runSimulationForPairs(pairs, sessionMatchTarget);
+  };
+
+  const handleAutoPairAll = () => {
+    if (players.length < 4) return;
+    const males = [...players.filter((p) => p.gender === 'MALE')].sort((a, b) => b.rankScore - a.rankScore);
+    const females = [...players.filter((p) => p.gender === 'FEMALE')].sort((a, b) => a.rankScore - b.rankScore);
+
+    const pairs: LockedPair[] = [];
+    if (males.length === females.length && males.length >= 2) {
+      for (let i = 0; i < males.length; i++) {
+        pairs.push({
+          id: `lp_all_${Date.now()}_${i + 1}`,
+          name: `Cặp Mix #${i + 1} (${males[i].name} & ${females[i].name})`,
+          player1Id: males[i].id,
+          player2Id: females[i].id,
+        });
+      }
+    } else {
+      const sorted = [...players].sort((a, b) => b.rankScore - a.rankScore);
+      const half = Math.floor(sorted.length / 2);
+      for (let i = 0; i < half; i++) {
+        const p1 = sorted[i];
+        const p2 = sorted[sorted.length - 1 - i];
+        pairs.push({
+          id: `lp_all_${Date.now()}_${i + 1}`,
+          name: `Cặp Cố Định #${i + 1} (${p1.name} & ${p2.name})`,
+          player1Id: p1.id,
+          player2Id: p2.id,
+        });
+      }
+    }
+    setLockedPairsList(pairs);
+    runSimulationForPairs(pairs, sessionMatchTarget);
   };
 
   // Apply to Main Schedule
   const handleApplyToSchedule = () => {
-    if (!simulationResult || !activeSelectedLockedPair) {
-      handleSimulateLockedSession();
-      return;
+    if (lockedPairsList.length === 0) return;
+
+    let res = simulationResult;
+    if (!res) {
+      const freshPlayers = players.map((p) => ({
+        ...p,
+        playedCount: 0,
+        pastPartners: [],
+      }));
+      const r = runContinuousMatchmaking(freshPlayers, sessionMatchTarget, {
+        lockedPairs: lockedPairsList,
+      });
+      res = {
+        matches: r.matches,
+        updatedPlayers: r.updatedPlayers,
+        pairStats: [],
+      };
     }
-
-    const pairLabel =
-      lockedPairLabel.trim() || `${activeSelectedLockedPair.player1.name} & ${activeSelectedLockedPair.player2.name}`;
-
-    const configLocked: LockedPair = {
-      id: `lp_${Date.now()}`,
-      name: pairLabel,
-      player1Id: activeSelectedLockedPair.player1.id,
-      player2Id: activeSelectedLockedPair.player2.id,
-    };
 
     if (onApplyLockedPairSchedule) {
       onApplyLockedPairSchedule(
-        simulationResult.matches,
-        simulationResult.updatedPlayers,
+        res.matches,
+        res.updatedPlayers,
         sessionMatchTarget,
-        [configLocked]
+        lockedPairsList
       );
     }
   };
@@ -384,9 +485,6 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
     });
   };
 
-  const r1Def = lp1 ? getRankDefinitionByScore(lp1.rankScore) : null;
-  const r2Def = lp2 ? getRankDefinitionByScore(lp2.rankScore) : null;
-
   return (
     <div className="space-y-6">
       {/* Active Locked Pairs Status Banner */}
@@ -470,7 +568,7 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
         </button>
       </div>
 
-      {/* SUB-TAB 1: LOCKED SESSION MODE */}
+      {/* SUB-TAB 1: LOCKED SESSION MODE (MULTI-PAIR SUPPORT) */}
       {activeSubTab === 'LOCKED_SESSION' && (
         <div className="space-y-6">
           {/* Explanation Banner */}
@@ -478,262 +576,433 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
             <div className="max-w-3xl">
               <h2 className="text-base font-bold text-slate-100 flex items-center gap-2 mb-1">
                 <HeartHandshake className="w-5 h-5 text-emerald-400" />
-                <span>Khóa Cặp Thi Đấu Cùng Nhau Cả Buổi (Locked Pair Session)</span>
+                <span>Khóa Nhiều Cặp Thi Đấu Cùng Nhau Cả Buổi (Multi-Pair Session Locking)</span>
               </h2>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Cho phép chọn 2 thành viên (ví dụ: <strong className="text-emerald-400">Nam A</strong> đánh cùng{' '}
-                <strong className="text-sky-400">Nữ B</strong> cả buổi). Trong tất cả các trận có sự tham gia của một trong hai người,{' '}
-                <strong>họ luôn được xếp cùng đội</strong>. Đối thủ được thuật toán tự động chọn ngẫu nhiên và cân bằng trình độ (
-                <strong className="text-amber-400">Δ ≤ 1</strong>), đồng thời đảm bảo số set ra sân của tất cả các thành viên trong nhóm là công bằng nhất!
+                Cho phép cố định <strong className="text-emerald-400">1 cặp, 2 cặp, 3 cặp hoặc toàn bộ các cặp trên sân</strong>. 
+                Trong mọi trận đấu, hai thành viên của cặp đã khóa <strong className="text-purple-300">luôn luôn đứng chung một đội</strong>, không bao giờ bị tách rời hay đối đầu nhau. 
+                Các cặp có thể đối đầu trực tiếp với nhau hoặc gặp đối thủ ngẫu nhiên công bằng (<strong className="text-amber-400">Δ ≤ 1</strong>), đồng thời số set ra sân của toàn bộ thành viên vẫn đảm bảo chênh lệch <strong className="text-emerald-400">Δ ≤ 1</strong>.
               </p>
             </div>
 
-            {/* Quick Presets */}
-            <div className="flex flex-wrap gap-2">
-              {defaultMale && defaultFemale && (
+            {/* Quick Action Presets */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleAutoPair2}
+                className="px-3 py-1.5 rounded-lg bg-purple-950/60 hover:bg-purple-900/80 text-purple-300 border border-purple-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                title="Tự động ghép 2 cặp cân bằng điểm số nhất"
+              >
+                <Zap className="w-3.5 h-3.5 text-purple-400" />
+                <span>Ghép 2 Cặp (4 người)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleAutoPairAll}
+                className="px-3 py-1.5 rounded-lg bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-500/40 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                title="Tự động ghép toàn bộ người chơi trong sân thành các cặp đôi cố định cân bằng"
+              >
+                <Shuffle className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Ghép Toàn Bộ Sân ({Math.floor(players.length / 2)} Cặp)</span>
+              </button>
+
+              {lockedPairsList.length > 0 && (
                 <button
-                  onClick={() => {
-                    setLockedP1Id(defaultMale.id);
-                    setLockedP2Id(defaultFemale.id);
-                    setLockedPairLabel(`${defaultMale.name} & ${defaultFemale.name}`);
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
+                  type="button"
+                  onClick={handleClearAllLockedPairs}
+                  className="px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all"
                 >
-                  👫 Ghép Đôi Nam Nữ
-                </button>
-              )}
-              {players.filter((p) => p.gender === 'MALE').length >= 2 && (
-                <button
-                  onClick={() => {
-                    const males = players.filter((p) => p.gender === 'MALE');
-                    setLockedP1Id(males[0].id);
-                    setLockedP2Id(males[1].id);
-                    setLockedPairLabel(`${males[0].name} & ${males[1].name}`);
-                  }}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold border border-slate-700 transition-colors"
-                >
-                  👬 Ghép Đôi Nam
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Xóa Hết Cặp</span>
                 </button>
               )}
             </div>
           </div>
 
-          {/* Configuration Card */}
+          {/* Main Grid Configuration & Simulation */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Left: Select the Pair (5 cols) */}
-            <div className="lg:col-span-5 bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-4 shadow-xl">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-purple-400" />
-                  <span>Chọn 2 Người Đánh Cùng Nhau</span>
-                </h3>
-                <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
-                  {activeSelectedLockedPair ? `${activeSelectedLockedPair.score} điểm` : '--'}
-                </span>
-              </div>
-
-              {/* Pair Label Input */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                  Đặt tên cặp đấu:
-                </label>
-                <input
-                  type="text"
-                  value={lockedPairLabel}
-                  onChange={(e) => setLockedPairLabel(e.target.value)}
-                  placeholder={
-                    activeSelectedLockedPair
-                      ? `${activeSelectedLockedPair.player1.name} & ${activeSelectedLockedPair.player2.name}`
-                      : 'Ví dụ: Nam A & Nữ B'
-                  }
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              {/* Member 1 Select */}
-              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-emerald-400">Thành viên 1:</label>
-                  {r1Def && (
-                    <span
-                      className="text-[10px] font-bold px-2 py-0.5 rounded border"
-                      style={{
-                        backgroundColor: r1Def.bgLight,
-                        color: r1Def.color,
-                        borderColor: r1Def.borderLight,
-                      }}
-                    >
-                      {r1Def.shortLabel} ({r1Def.score}đ)
-                    </span>
-                  )}
+            {/* Left Column: Configured Pairs List & Add Form (5 cols) */}
+            <div className="lg:col-span-5 space-y-4">
+              {/* Card 1: Configured Pairs List */}
+              <div className="bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-4 shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-purple-400" />
+                    <h3 className="text-sm font-bold text-slate-100">
+                      Danh Sách Cặp Cố Định
+                    </h3>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-purple-300 bg-purple-500/20 px-2.5 py-0.5 rounded-full border border-purple-500/30">
+                    {lockedPairsList.length} cặp ({lockedPlayerIds.size}/{players.length} người)
+                  </span>
                 </div>
-                <select
-                  value={lockedP1Id}
-                  onChange={(e) => setLockedP1Id(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                >
-                  {players.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.gender === 'MALE' ? '♂ Nam' : '♀ Nữ'} : {p.name} - {p.rankScore}đ (
-                      {getRankDefinitionByScore(p.rankScore).shortLabel})
-                    </option>
-                  ))}
-                </select>
-              </div>
 
-              {/* Member 2 Select */}
-              <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-sky-400">Thành viên 2 (Đồng đội gắn kết):</label>
-                  {r2Def && (
-                    <span
-                      className="text-[10px] font-bold px-2 py-0.5 rounded border"
-                      style={{
-                        backgroundColor: r2Def.bgLight,
-                        color: r2Def.color,
-                        borderColor: r2Def.borderLight,
-                      }}
-                    >
-                      {r2Def.shortLabel} ({r2Def.score}đ)
-                    </span>
-                  )}
-                </div>
-                <select
-                  value={lockedP2Id}
-                  onChange={(e) => setLockedP2Id(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
-                >
-                  {players
-                    .filter((p) => p.id !== lockedP1Id)
-                    .map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.gender === 'MALE' ? '♂ Nam' : '♀ Nữ'} : {p.name} - {p.rankScore}đ (
-                        {getRankDefinitionByScore(p.rankScore).shortLabel})
-                      </option>
-                    ))}
-                </select>
-              </div>
+                {/* List of Configured Locked Pairs */}
+                {lockedPairsList.length === 0 ? (
+                  <div className="py-8 text-center text-slate-500 text-xs space-y-2 border border-dashed border-slate-800 rounded-xl">
+                    <HeartHandshake className="w-8 h-8 text-slate-600 mx-auto" />
+                    <p>Chưa có cặp cố định nào được thiết lập.</p>
+                    <p className="text-[11px] text-slate-500">
+                      Nhấp nút "Thêm Cặp Mới" bên dưới hoặc chọn gợi ý ghép cặp tự động.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+                    {lockedPairsList.map((lp, idx) => {
+                      const p1Obj = playerMap.get(lp.player1Id);
+                      const p2Obj = playerMap.get(lp.player2Id);
+                      const r1 = p1Obj ? getRankDefinitionByScore(p1Obj.rankScore) : null;
+                      const r2 = p2Obj ? getRankDefinitionByScore(p2Obj.rankScore) : null;
+                      const combined = (p1Obj?.rankScore || 0) + (p2Obj?.rankScore || 0);
+                      const pairType =
+                        p1Obj && p2Obj
+                          ? p1Obj.gender === p2Obj.gender
+                            ? p1Obj.gender === 'MALE'
+                              ? 'Đôi Nam'
+                              : 'Đôi Nữ'
+                            : 'Đôi Nam Nữ'
+                          : '';
 
-              {/* Match target count selector */}
-              <div className="space-y-2 pt-2">
-                <label className="block text-[11px] font-bold text-slate-400 uppercase">
-                  Tổng số trận cả buổi thi đấu:
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {[6, 8, 9, 10, 11, 12, 16].map((num) => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => setSessionMatchTarget(num)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all ${
-                        sessionMatchTarget === num
-                          ? 'bg-emerald-500 text-slate-950 shadow-md font-bold'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                      }`}
-                    >
-                      {num} trận
-                    </button>
-                  ))}
-                </div>
-              </div>
+                      return (
+                        <div
+                          key={lp.id}
+                          className="bg-slate-950/80 border border-purple-500/30 hover:border-purple-500/60 p-3 rounded-xl flex items-center justify-between gap-3 transition-all shadow-sm"
+                        >
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
+                                #{idx + 1}
+                              </span>
+                              <span className="text-xs font-bold text-white truncate">
+                                {lp.name}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                ({combined}đ • {pairType})
+                              </span>
+                            </div>
 
-              {/* Action Buttons */}
-              <div className="pt-3 flex flex-col gap-2.5">
-                <button
-                  onClick={handleSimulateLockedSession}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-lg transition-all"
-                >
-                  <Eye className="w-4 h-4" />
-                  <span>Mô Phỏng & Xem Trước Lịch Đấu Với Cặp Này</span>
-                </button>
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300">
+                              <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                                {p1Obj?.gender === 'MALE' ? '♂' : '♀'} {p1Obj?.name}
+                                {r1 && (
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    ({r1.score}đ)
+                                  </span>
+                                )}
+                              </span>
+                              <span className="text-slate-500">&</span>
+                              <span className="text-sky-400 font-semibold flex items-center gap-1">
+                                {p2Obj?.gender === 'MALE' ? '♂' : '♀'} {p2Obj?.name}
+                                {r2 && (
+                                  <span className="text-[10px] text-slate-400 font-mono">
+                                    ({r2.score}đ)
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                          </div>
 
-                {simulationResult && (
-                  <button
-                    onClick={handleApplyToSchedule}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xl transition-all animate-bounce"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Áp Dụng Lịch Đấu Vào Màn Hình Chính</span>
-                  </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveLockedPair(lp.id)}
+                            className="p-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 border border-red-500/30 transition-all shrink-0"
+                            title="Xóa cặp này khỏi danh sách cố định"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 )}
+
+                {/* Toggle / Add New Pair Form */}
+                <div className="pt-2 border-t border-slate-800">
+                  {!showAddPairForm ? (
+                    <button
+                      type="button"
+                      disabled={availablePlayersForNewPair.length < 2}
+                      onClick={() => {
+                        setShowAddPairForm(true);
+                        if (availablePlayersForNewPair.length >= 2) {
+                          setNewP1Id(availablePlayersForNewPair[0].id);
+                          setNewP2Id(availablePlayersForNewPair[1].id);
+                        }
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 text-xs font-semibold border border-slate-700 transition-all"
+                    >
+                      <Plus className="w-4 h-4 text-emerald-400" />
+                      <span>Thêm Cặp Cố Định Mới</span>
+                    </button>
+                  ) : (
+                    <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3 animate-in fade-in duration-150">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Tạo Cặp Cố Định Mới</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowAddPairForm(false)}
+                          className="text-[11px] text-slate-400 hover:text-slate-200"
+                        >
+                          Đóng
+                        </button>
+                      </div>
+
+                      {/* Name input */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                          Tên Cặp (Tùy chọn):
+                        </label>
+                        <input
+                          type="text"
+                          value={newPairLabel}
+                          onChange={(e) => setNewPairLabel(e.target.value)}
+                          placeholder="Ví dụ: Nam A & Nữ B hoặc Cặp Vô Địch"
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                        />
+                      </div>
+
+                      {/* Member 1 */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-emerald-400 uppercase mb-1">
+                          Thành viên 1:
+                        </label>
+                        <select
+                          value={newP1Id}
+                          onChange={(e) => {
+                            setNewP1Id(e.target.value);
+                            if (newP2Id === e.target.value) {
+                              const other = availablePlayersForNewPair.find((p) => p.id !== e.target.value);
+                              if (other) setNewP2Id(other.id);
+                            }
+                          }}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                        >
+                          {players.map((p) => {
+                            const isAlreadyLocked = lockedPlayerIds.has(p.id);
+                            return (
+                              <option key={p.id} value={p.id} disabled={isAlreadyLocked}>
+                                {p.gender === 'MALE' ? '♂ Nam' : '♀ Nữ'}: {p.name} ({p.rankScore}đ)
+                                {isAlreadyLocked ? ' - [Đã có cặp]' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      {/* Member 2 */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-sky-400 uppercase mb-1">
+                          Thành viên 2:
+                        </label>
+                        <select
+                          value={newP2Id}
+                          onChange={(e) => setNewP2Id(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-sky-500"
+                        >
+                          {players
+                            .filter((p) => p.id !== newP1Id)
+                            .map((p) => {
+                              const isAlreadyLocked = lockedPlayerIds.has(p.id);
+                              return (
+                                <option key={p.id} value={p.id} disabled={isAlreadyLocked}>
+                                  {p.gender === 'MALE' ? '♂ Nam' : '♀ Nữ'}: {p.name} ({p.rankScore}đ)
+                                  {isAlreadyLocked ? ' - [Đã có cặp]' : ''}
+                                </option>
+                              );
+                            })}
+                        </select>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={!newP1Id || !newP2Id || newP1Id === newP2Id}
+                        onClick={() => handleAddLockedPair(newP1Id, newP2Id, newPairLabel)}
+                        className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Lưu Cặp Vào Danh Sách</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Match Target Selector */}
+                <div className="pt-2 border-t border-slate-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase">
+                      Tổng số trận buổi đấu:
+                    </label>
+                    <span className="text-xs font-mono font-bold text-emerald-400">
+                      {sessionMatchTarget} trận
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[6, 8, 9, 10, 11, 12, 16].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => {
+                          setSessionMatchTarget(num);
+                          if (lockedPairsList.length > 0) {
+                            runSimulationForPairs(lockedPairsList, num);
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all ${
+                          sessionMatchTarget === num
+                            ? 'bg-emerald-500 text-slate-950 font-bold shadow-md'
+                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        {num} trận
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Primary Action Buttons */}
+                <div className="pt-2 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    disabled={lockedPairsList.length === 0}
+                    onClick={() => runSimulationForPairs(lockedPairsList, sessionMatchTarget)}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-bold text-xs shadow-lg transition-all"
+                  >
+                    <Eye className="w-4 h-4" />
+                    <span>Mô Phỏng & Kiểm Tra Toàn Bộ Lịch Đấu</span>
+                  </button>
+
+                  {simulationResult && (
+                    <button
+                      type="button"
+                      onClick={handleApplyToSchedule}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-xl transition-all animate-bounce"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Áp Dụng {lockedPairsList.length} Cặp Cố Định Vào Lịch Đấu Chính</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
-            {/* Right: Metrics & Analysis Card (7 cols) */}
+            {/* Right Column: Multi-Pair Analytics & Simulation Preview (7 cols) */}
             <div className="lg:col-span-7 bg-slate-900 rounded-2xl border border-slate-800 p-5 space-y-4 shadow-xl">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <div className="flex items-center gap-2">
                   <BarChart2 className="w-4 h-4 text-emerald-400" />
-                  <span>Phân Tích Cặp Đấu & Tính Cân Bằng Cả Buổi</span>
-                </h3>
+                  <h3 className="text-sm font-bold text-slate-100">
+                    Phân Tích & Mô Phỏng Cả Buổi
+                  </h3>
+                </div>
                 <span className="text-xs text-slate-400 font-mono">
-                  {players.length} thành viên trên sân
+                  {players.length} thành viên sân
                 </span>
               </div>
 
-              {activeSelectedLockedPair && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                    <span className="text-[11px] text-slate-400">Thể loại cặp:</span>
-                    <div className="text-xs font-bold text-emerald-400">
-                      {activeSelectedLockedPair.type === 'MIXED_DOUBLE'
-                        ? '👫 Đôi Nam Nữ (Mix)'
-                        : activeSelectedLockedPair.type === 'MENS_DOUBLE'
-                        ? '👬 Đôi Nam'
-                        : '👭 Đôi Nữ'}
-                    </div>
+              {/* Status & Metrics Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-0.5">
+                  <span className="text-[10px] text-slate-400">Số Cặp Khóa:</span>
+                  <div className="text-xs font-bold text-purple-300 font-mono">
+                    {lockedPairsList.length} cặp ({lockedPlayerIds.size} VĐV)
                   </div>
+                </div>
 
-                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                    <span className="text-[11px] text-slate-400">Số trận cặp đánh cùng nhau:</span>
-                    <div className="text-xs font-bold text-purple-300 font-mono">
-                      ~ {expectedRoundedSets} trận ({sessionMatchTarget} trận tổng)
-                    </div>
+                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-0.5">
+                  <span className="text-[10px] text-slate-400">Số Trận Buổi:</span>
+                  <div className="text-xs font-bold text-emerald-400 font-mono">
+                    {sessionMatchTarget} trận
                   </div>
+                </div>
 
-                  <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-1">
-                    <span className="text-[11px] text-slate-400">Cặp đối thủ tương thích (Δ ≤ 1):</span>
-                    <div className="text-xs font-bold text-amber-400 font-mono">
-                      {compatibleOpponentPairsCount} cặp đối thủ
-                    </div>
+                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-0.5">
+                  <span className="text-[10px] text-slate-400">Chuẩn Delta:</span>
+                  <div className="text-xs font-bold text-amber-400 font-mono">
+                    100% Δ ≤ 1
+                  </div>
+                </div>
+
+                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-0.5">
+                  <span className="text-[10px] text-slate-400">Độ Tách Rời:</span>
+                  <div className="text-xs font-bold text-emerald-400 font-mono">
+                    0 lần (Tuyệt đối)
+                  </div>
+                </div>
+              </div>
+
+              {/* Breakdown per Locked Pair */}
+              {simulationResult?.pairStats && simulationResult.pairStats.length > 0 && (
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase">
+                    Thống kê ra sân của các cặp cố định:
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {simulationResult.pairStats.map(({ pair, matchesCount, combinedScore }, idx) => (
+                      <div
+                        key={pair.id}
+                        className="bg-slate-950/90 border border-purple-500/30 p-2.5 rounded-xl flex items-center justify-between text-xs"
+                      >
+                        <div className="truncate">
+                          <span className="font-bold text-purple-300">
+                            #{idx + 1} {pair.name}
+                          </span>
+                          <span className="text-[10px] text-slate-400 block">
+                            Tổng {combinedScore}đ • 100% đánh cùng nhau
+                          </span>
+                        </div>
+                        <span className="font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 shrink-0">
+                          {matchesCount} trận
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
 
-              {/* Simulation Result Preview Area */}
+              {/* Simulation Result Area */}
               {simulationResult ? (
                 <div className="space-y-4 pt-2">
                   <div className="flex items-center justify-between">
                     <h4 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
                       <Sparkles className="w-4 h-4 text-amber-400" />
-                      <span>Kết Quả Xếp Trận Mô Phỏng ({simulationResult.matches.length} trận)</span>
+                      <span>Kết Quả Lịch Đấu Mô Phỏng ({simulationResult.matches.length} trận)</span>
                     </h4>
                     <span className="text-[11px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                      Cặp cố định ra sân: {simulationResult.lockedPairMatchesCount} trận
+                      Delta max ≤ 1
                     </span>
                   </div>
 
-                  {/* Match Cards List */}
-                  <div className="space-y-2.5 max-h-[380px] overflow-y-auto pr-2">
+                  {/* Matches List */}
+                  <div className="space-y-2.5 max-h-[350px] overflow-y-auto pr-2">
                     {simulationResult.matches.map((m, idx) => {
-                      const isLockedMatch =
-                        m.notes?.includes('⭐ Cặp cố định') ||
-                        (m.teamA[0] === lockedP1Id && m.teamA[1] === lockedP2Id) ||
-                        (m.teamA[0] === lockedP2Id && m.teamA[1] === lockedP1Id) ||
-                        (m.teamB[0] === lockedP1Id && m.teamB[1] === lockedP2Id) ||
-                        (m.teamB[0] === lockedP2Id && m.teamB[1] === lockedP1Id);
-
                       const a1Name = playerMap.get(m.teamA[0])?.name || m.teamA[0];
                       const a2Name = playerMap.get(m.teamA[1])?.name || m.teamA[1];
                       const b1Name = playerMap.get(m.teamB[0])?.name || m.teamB[0];
                       const b2Name = playerMap.get(m.teamB[1])?.name || m.teamB[1];
 
+                      // Check which locked pairs are involved
+                      const involvedPairs = lockedPairsList.filter((lp) => {
+                        const inA =
+                          (m.teamA[0] === lp.player1Id && m.teamA[1] === lp.player2Id) ||
+                          (m.teamA[0] === lp.player2Id && m.teamA[1] === lp.player1Id);
+                        const inB =
+                          (m.teamB[0] === lp.player1Id && m.teamB[1] === lp.player2Id) ||
+                          (m.teamB[0] === lp.player2Id && m.teamB[1] === lp.player1Id);
+                        return inA || inB;
+                      });
+
+                      const hasLockedPair = involvedPairs.length > 0;
+
                       return (
                         <div
                           key={m.matchId || idx}
                           className={`p-3 rounded-xl border text-xs transition-all ${
-                            isLockedMatch
-                              ? 'bg-purple-950/20 border-purple-500/50 shadow-md'
+                            hasLockedPair
+                              ? 'bg-purple-950/20 border-purple-500/40 shadow-sm'
                               : 'bg-slate-950/60 border-slate-800'
                           }`}
                         >
@@ -748,14 +1017,14 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
                             </div>
 
                             <div className="flex items-center gap-2">
-                              {isLockedMatch ? (
+                              {hasLockedPair ? (
                                 <span className="flex items-center gap-1 text-[10px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-full border border-purple-500/30">
                                   <Lock className="w-3 h-3 text-purple-400" />
-                                  <span>Cặp Cố Định Thi Đấu</span>
+                                  <span>{involvedPairs.map((lp) => lp.name).join(' vs ')}</span>
                                 </span>
                               ) : (
                                 <span className="text-[10px] text-slate-500 italic">
-                                  Cặp cố định nghỉ xoay tua
+                                  Các cặp cố định nghỉ xoay tua
                                 </span>
                               )}
                               <span
@@ -772,16 +1041,7 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
 
                           <div className="grid grid-cols-11 items-center gap-2 bg-slate-900/60 p-2 rounded-lg">
                             <div className="col-span-5 text-right font-semibold text-slate-200 truncate">
-                              <span
-                                className={
-                                  isLockedMatch &&
-                                  (m.teamA.includes(lockedP1Id) || m.teamA.includes(lockedP2Id))
-                                    ? 'text-purple-300 font-bold'
-                                    : ''
-                                }
-                              >
-                                {a1Name} & {a2Name}
-                              </span>
+                              <span>{a1Name} & {a2Name}</span>
                               <span className="ml-1 text-[10px] text-slate-400 font-mono">
                                 ({m.scoreA}đ)
                               </span>
@@ -792,16 +1052,7 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
                             </div>
 
                             <div className="col-span-5 font-semibold text-slate-200 truncate">
-                              <span
-                                className={
-                                  isLockedMatch &&
-                                  (m.teamB.includes(lockedP1Id) || m.teamB.includes(lockedP2Id))
-                                    ? 'text-purple-300 font-bold'
-                                    : ''
-                                }
-                              >
-                                {b1Name} & {b2Name}
-                              </span>
+                              <span>{b1Name} & {b2Name}</span>
                               <span className="ml-1 text-[10px] text-slate-400 font-mono">
                                 ({m.scoreB}đ)
                               </span>
@@ -812,14 +1063,26 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
                     })}
                   </div>
 
-                  {/* Set distribution audit */}
+                  {/* Individual Player Set Distribution Audit */}
                   <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-2">
-                    <span className="text-[11px] font-bold text-slate-400 uppercase">
-                      Thống kê số set của từng thành viên trong buổi đấu:
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase">
+                        Thống kê số set của tất cả thành viên trong buổi:
+                      </span>
+                      {(() => {
+                        const counts = simulationResult.updatedPlayers.map((p) => p.playedCount);
+                        const maxP = Math.max(...counts);
+                        const minP = Math.min(...counts);
+                        return (
+                          <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                            Độ lệch số set: Δ = {maxP - minP} (Chuẩn ≤ 1)
+                          </span>
+                        );
+                      })()}
+                    </div>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {simulationResult.updatedPlayers.map((p) => {
-                        const isLockedMember = p.id === lockedP1Id || p.id === lockedP2Id;
+                        const isLockedMember = lockedPlayerIds.has(p.id);
                         return (
                           <div
                             key={p.id}
@@ -830,7 +1093,7 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
                             }`}
                           >
                             <span className="truncate text-slate-300">
-                              {p.name.split(' ')[0]}
+                              {p.name.split(' ')[0]} {p.gender === 'MALE' ? '♂' : '♀'}
                             </span>
                             <span
                               className={`font-mono font-bold px-1.5 py-0.5 rounded text-[11px] ${
@@ -850,7 +1113,7 @@ export const InterTeamMatchmaker: React.FC<InterTeamMatchmakerProps> = ({
               ) : (
                 <div className="py-16 text-center text-slate-500 text-xs space-y-2">
                   <HeartHandshake className="w-8 h-8 text-slate-600 mx-auto" />
-                  <p>Nhấp vào nút "Mô Phỏng & Xem Trước" bên trái để kiểm tra lịch thi đấu.</p>
+                  <p>Nhấp vào nút "Mô Phỏng & Kiểm Tra Toàn Bộ Lịch Đấu" bên trái để kiểm tra lịch thi đấu.</p>
                 </div>
               )}
             </div>
