@@ -372,6 +372,15 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({
                     )
                   )}
 
+                  {m.notes?.includes('⭐ Cặp cố định') && (
+                    <span
+                      className="flex items-center gap-1 text-[10px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-full border border-purple-500/40 shrink-0"
+                      title={m.notes}
+                    >
+                      <Lock className="w-2.5 h-2.5 text-purple-400" />
+                      <span>{m.notes.replace('⭐ Cặp cố định: ', '')}</span>
+                    </span>
+                  )}
                   {m.isLockedPast && (
                     <span
                       className="flex items-center gap-1 text-[10px] font-bold text-slate-300 bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700 shrink-0"

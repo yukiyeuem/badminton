@@ -1,4 +1,4 @@
-import { Player, Match, Pair, MatchmakingResult, AlgorithmConfig, MatchType } from '../types/badminton';
+import { Player, Match, Pair, MatchmakingResult, AlgorithmConfig, MatchType, LockedPair } from '../types/badminton';
 
 /**
  * Generates all combinations of size 2 from an array of players
@@ -429,7 +429,52 @@ export function runContinuousMatchmaking(
     playerIds: string[];
     isStandardFormat: boolean;
     spread: number;
+    lockedPairName?: string;
+    roundNumber?: number;
+    courtNumber?: number;
   }
+
+  const lockedPairs = config.lockedPairs || [];
+
+  const isValidForLockedPairs = (pairA: [Player, Player], pairB: [Player, Player]): boolean => {
+    if (lockedPairs.length === 0) return true;
+    const matchIds = [pairA[0].id, pairA[1].id, pairB[0].id, pairB[1].id];
+
+    for (const lp of lockedPairs) {
+      const hasP1 = matchIds.includes(lp.player1Id);
+      const hasP2 = matchIds.includes(lp.player2Id);
+
+      // If neither is present, this match is valid for other players while locked pair rests
+      if (!hasP1 && !hasP2) continue;
+
+      // If only one is present, they are separated -> invalid
+      if (hasP1 !== hasP2) return false;
+
+      // Both are present, they MUST be teammates in pairA or pairB
+      const inA =
+        (pairA[0].id === lp.player1Id && pairA[1].id === lp.player2Id) ||
+        (pairA[0].id === lp.player2Id && pairA[1].id === lp.player1Id);
+      const inB =
+        (pairB[0].id === lp.player1Id && pairB[1].id === lp.player2Id) ||
+        (pairB[0].id === lp.player2Id && pairB[1].id === lp.player1Id);
+
+      if (!inA && !inB) return false;
+    }
+    return true;
+  };
+
+  const getMatchedLockedPairName = (pairA: [Player, Player], pairB: [Player, Player]): string | undefined => {
+    for (const lp of lockedPairs) {
+      const inA =
+        (pairA[0].id === lp.player1Id && pairA[1].id === lp.player2Id) ||
+        (pairA[0].id === lp.player2Id && pairA[1].id === lp.player1Id);
+      const inB =
+        (pairB[0].id === lp.player1Id && pairB[1].id === lp.player2Id) ||
+        (pairB[0].id === lp.player2Id && pairB[1].id === lp.player1Id);
+      if (inA || inB) return lp.name;
+    }
+    return undefined;
+  };
 
   const candidates: Cand[] = [];
   let candIdGen = 0;
@@ -446,6 +491,9 @@ export function runContinuousMatchmaking(
           ];
 
           for (const [pairA, pairB] of configs) {
+            // Strictly enforce locked pairs constraint
+            if (!isValidForLockedPairs(pairA, pairB)) continue;
+
             const aGenders = [pairA[0].gender, pairA[1].gender].sort().join('');
             const bGenders = [pairB[0].gender, pairB[1].gender].sort().join('');
 
@@ -493,6 +541,7 @@ export function runContinuousMatchmaking(
                 playerIds: [pairA[0].id, pairA[1].id, pairB[0].id, pairB[1].id],
                 isStandardFormat,
                 spread,
+                lockedPairName: getMatchedLockedPairName(pairA, pairB),
               });
             }
           }
@@ -514,6 +563,8 @@ export function runContinuousMatchmaking(
               [[quad[0], quad[3]], [quad[1], quad[2]]],
             ];
             for (const [pairA, pairB] of configs) {
+              if (!isValidForLockedPairs(pairA, pairB)) continue;
+
               const scoreA = pairA[0].rankScore + pairA[1].rankScore;
               const scoreB = pairB[0].rankScore + pairB[1].rankScore;
               const delta = Math.abs(scoreA - scoreB);
@@ -537,6 +588,7 @@ export function runContinuousMatchmaking(
                 playerIds: [pairA[0].id, pairA[1].id, pairB[0].id, pairB[1].id],
                 isStandardFormat: false,
                 spread,
+                lockedPairName: getMatchedLockedPairName(pairA, pairB),
               });
             }
           }
@@ -546,13 +598,26 @@ export function runContinuousMatchmaking(
   }
 
   // 2. Continuous schedule generation supporting any target match count (6, 8, 9, 10, 11, etc.)
-  const maleCount = players.filter((p) => p.gender === 'MALE').length;
-  const femaleCount = players.filter((p) => p.gender === 'FEMALE').length;
-  // User invariant: Regardless of target matches, always schedule at least 2 Men's Doubles (if >= 4 men).
-  // If at least 4 women, always schedule at least 2 Women's Doubles.
-  const minMensNeeded = maleCount >= 4 ? Math.min(2, targetMatches) : 0;
-  const minWomensNeeded =
-    femaleCount >= 4 ? Math.min(2, Math.max(0, targetMatches - minMensNeeded)) : 0;
+  const lockedPlayerIds = new Set(lockedPairs.flatMap((lp) => [lp.player1Id, lp.player2Id]));
+  const freeMales = players.filter((p) => p.gender === 'MALE' && !lockedPlayerIds.has(p.id)).length;
+  const freeFemales = players.filter((p) => p.gender === 'FEMALE' && !lockedPlayerIds.has(p.id)).length;
+
+  const hasLockedMensPair = lockedPairs.some((lp) => {
+    const p1 = playerMap.get(lp.player1Id);
+    const p2 = playerMap.get(lp.player2Id);
+    return p1?.gender === 'MALE' && p2?.gender === 'MALE';
+  });
+  const hasLockedWomensPair = lockedPairs.some((lp) => {
+    const p1 = playerMap.get(lp.player1Id);
+    const p2 = playerMap.get(lp.player2Id);
+    return p1?.gender === 'FEMALE' && p2?.gender === 'FEMALE';
+  });
+
+  const canScheduleMens = freeMales >= 4 || (hasLockedMensPair && freeMales >= 2);
+  const canScheduleWomens = freeFemales >= 4 || (hasLockedWomensPair && freeFemales >= 2);
+
+  const minMensNeeded = canScheduleMens ? Math.min(2, targetMatches) : 0;
+  const minWomensNeeded = canScheduleWomens ? Math.min(2, Math.max(0, targetMatches - minMensNeeded)) : 0;
 
   let scheduledMens = 0;
   let scheduledWomens = 0;
@@ -569,124 +634,91 @@ export function runContinuousMatchmaking(
   });
 
   const courtCount = config.courtCount || (N <= 8 ? 2 : Math.min(4, Math.floor(N / 4)));
-  const totalRounds = Math.ceil(targetMatches / courtCount);
   const scheduledList: Cand[] = [];
+  const opponentMatchupCount = new Map<string, number>();
 
-  for (let r = 0; r < totalRounds; r++) {
-    const matchesInThisRound = Math.min(courtCount, targetMatches - scheduledList.length);
-    if (matchesInThisRound <= 0) break;
+  let currentRound = 1;
+  const maxSafetyIterations = targetMatches * 4;
+  let iterations = 0;
 
-    const deficitMens = Math.max(0, minMensNeeded - scheduledMens);
-    const deficitWomens = Math.max(0, minWomensNeeded - scheduledWomens);
-
-    // For 8 players on 2 courts, partition all 8 players in a full round when matchesInThisRound === 2
-    if (N === 8 && matchesInThisRound === 2) {
-      let bestPair: [Cand, Cand] | null = null;
-      let bestPairCost = Infinity;
-
-      // Quota check: if we need same-gender doubles, enforce or strongly prefer them
-      const needBothGenderDoubles = deficitMens > 0 && deficitWomens > 0;
-      const needMensOnly = deficitMens > 0 && deficitWomens === 0;
-      const needWomensOnly = deficitWomens > 0 && deficitMens === 0;
-
-      for (let i = 0; i < candidates.length; i++) {
-        const c1 = candidates[i];
-        if (needBothGenderDoubles && c1.type !== 'MENS_DOUBLE' && c1.type !== 'WOMENS_DOUBLE') {
-          continue;
-        }
-
-        const set1 = new Set(c1.playerIds);
-
-        for (let j = i + 1; j < candidates.length; j++) {
-          const c2 = candidates[j];
-          if (c2.playerIds.some((id) => set1.has(id))) continue;
-
-          if (needBothGenderDoubles) {
-            const hasMens = c1.type === 'MENS_DOUBLE' || c2.type === 'MENS_DOUBLE';
-            const hasWomens = c1.type === 'WOMENS_DOUBLE' || c2.type === 'WOMENS_DOUBLE';
-            if (!hasMens || !hasWomens) continue;
-          } else if (needMensOnly) {
-            const hasMens = c1.type === 'MENS_DOUBLE' || c2.type === 'MENS_DOUBLE';
-            if (!hasMens) continue;
-          } else if (needWomensOnly) {
-            const hasWomens = c1.type === 'WOMENS_DOUBLE' || c2.type === 'WOMENS_DOUBLE';
-            if (!hasWomens) continue;
-          }
-
-          // Cost function
-          const r1A = partnerCount.get(c1.pairAKey) || 0;
-          const r1B = partnerCount.get(c1.pairBKey) || 0;
-          const r2A = partnerCount.get(c2.pairAKey) || 0;
-          const r2B = partnerCount.get(c2.pairBKey) || 0;
-
-          const partCost = (Math.pow(r1A, 2) + Math.pow(r1B, 2) + Math.pow(r2A, 2) + Math.pow(r2B, 2)) * 3000;
-          const deltaCost = (c1.delta + c2.delta) * 50;
-          const spreadCost = -(c1.spread + c2.spread) * 2;
-          const stdBonus = (c1.isStandardFormat ? -200 : 0) + (c2.isStandardFormat ? -200 : 0);
-
-          const totalCost = partCost + deltaCost + spreadCost + stdBonus;
-          if (totalCost < bestPairCost) {
-            bestPairCost = totalCost;
-            bestPair = [c1, c2];
-          }
-        }
-      }
-
-      if (bestPair) {
-        for (const cand of bestPair) {
-          scheduledList.push(cand);
-          if (cand.type === 'MENS_DOUBLE') scheduledMens++;
-          if (cand.type === 'WOMENS_DOUBLE') scheduledWomens++;
-          cand.playerIds.forEach((id) => playedCount.set(id, playedCount.get(id)! + 1));
-          partnerCount.set(cand.pairAKey, (partnerCount.get(cand.pairAKey) || 0) + 1);
-          partnerCount.set(cand.pairBKey, (partnerCount.get(cand.pairBKey) || 0) + 1);
-        }
-        continue;
-      }
-    }
-
-    // Single match or remaining matches in round (e.g. 9th or 11th match, or odd court count)
+  while (scheduledList.length < targetMatches && iterations < maxSafetyIterations) {
+    iterations++;
     const roundPlayers = new Set<string>();
-    for (let m = 0; m < matchesInThisRound; m++) {
-      let bestCand: Cand | null = null;
-      let bestCost = Infinity;
-      const minOverall = Math.min(...Array.from(playedCount.values()));
+    const matchesToScheduleInRound = Math.min(courtCount, targetMatches - scheduledList.length);
+
+    for (let c = 0; c < matchesToScheduleInRound; c++) {
       const remainingTotalMatches = targetMatches - scheduledList.length;
       const curDeficitMens = Math.max(0, minMensNeeded - scheduledMens);
       const curDeficitWomens = Math.max(0, minWomensNeeded - scheduledWomens);
 
-      // Check if we must strictly pick same-gender candidate to satisfy quota
-      const mustPickMens = curDeficitMens > 0 && remainingTotalMatches <= (curDeficitMens + curDeficitWomens);
-      const mustPickWomens = curDeficitWomens > 0 && remainingTotalMatches <= (curDeficitMens + curDeficitWomens);
+      const mustPickGenderSpecific =
+        (curDeficitMens > 0 || curDeficitWomens > 0) &&
+        remainingTotalMatches <= (curDeficitMens + curDeficitWomens);
+
+      const minOverall = Math.min(...Array.from(playedCount.values()));
+
+      let bestCand: Cand | null = null;
+      let bestCost = Infinity;
 
       for (const cand of candidates) {
-        // Player cannot play twice in the same round
+        // Must not conflict with any player already playing in this current round
         if (cand.playerIds.some((id) => roundPlayers.has(id))) continue;
 
-        if (mustPickMens && cand.type !== 'MENS_DOUBLE') continue;
-        if (mustPickWomens && cand.type !== 'WOMENS_DOUBLE') continue;
+        if (mustPickGenderSpecific) {
+          const isNeededMens = curDeficitMens > 0 && cand.type === 'MENS_DOUBLE';
+          const isNeededWomens = curDeficitWomens > 0 && cand.type === 'WOMENS_DOUBLE';
+          if (!isNeededMens && !isNeededWomens) continue;
+        }
 
         const pCounts = cand.playerIds.map((id) => playedCount.get(id)!);
+        const maxCntInCand = Math.max(...pCounts);
 
-        // Heavily penalize selecting players who have already played more than the minimum
+        // Strict fairness: Equalize played counts (delta <= 1 across all players)
+        const targetPerPlayer = Math.ceil((targetMatches * 4) / N);
         let playedPenalty = 0;
         pCounts.forEach((cnt) => {
-          playedPenalty += Math.pow(cnt - minOverall, 2) * 5000;
+          playedPenalty += Math.pow(cnt - minOverall, 2) * 40000;
+          if (cnt >= targetPerPlayer) {
+            playedPenalty += 180000;
+          }
         });
+        if (maxCntInCand >= minOverall + 2) {
+          playedPenalty += 300000;
+        }
 
-        const rA = partnerCount.get(cand.pairAKey) || 0;
-        const rB = partnerCount.get(cand.pairBKey) || 0;
-        const partnerCost = (Math.pow(rA, 2) + Math.pow(rB, 2)) * 3000;
-        const deltaCost = cand.delta * 50;
+        // Partner repetition cost (ONLY for non-locked pairings)
+        const isPairALocked = lockedPairs.some(
+          (lp) =>
+            (cand.p1.id === lp.player1Id && cand.p2.id === lp.player2Id) ||
+            (cand.p1.id === lp.player2Id && cand.p2.id === lp.player1Id)
+        );
+        const isPairBLocked = lockedPairs.some(
+          (lp) =>
+            (cand.p3.id === lp.player1Id && cand.p4.id === lp.player2Id) ||
+            (cand.p3.id === lp.player2Id && cand.p4.id === lp.player1Id)
+        );
+
+        const rA = isPairALocked ? 0 : (partnerCount.get(cand.pairAKey) || 0);
+        const rB = isPairBLocked ? 0 : (partnerCount.get(cand.pairBKey) || 0);
+        const partnerCost = (Math.pow(rA, 2) + Math.pow(rB, 2)) * 1200;
+
+        // Opponent variety: penalize facing the exact same opponent pair again
+        const matchupKey = [cand.pairAKey, cand.pairBKey].sort().join('__vs__');
+        const repeatCount = opponentMatchupCount.get(matchupKey) || 0;
+        const rematchPenalty = repeatCount * 1800;
+
+        const deltaCost = cand.delta * 80;
         const spreadBonus = -cand.spread * 2;
         const stdBonus = cand.isStandardFormat ? -200 : 0;
 
-        // Quota bonus to fulfill minMensNeeded and minWomensNeeded
+        // Quota bonus for Men's and Women's doubles (gentle nudge unless mustPick is active)
         let quotaBonus = 0;
-        if (cand.type === 'MENS_DOUBLE' && curDeficitMens > 0) quotaBonus -= 30000;
-        if (cand.type === 'WOMENS_DOUBLE' && curDeficitWomens > 0) quotaBonus -= 30000;
+        if (cand.type === 'MENS_DOUBLE' && curDeficitMens > 0) quotaBonus -= 2500;
+        if (cand.type === 'WOMENS_DOUBLE' && curDeficitWomens > 0) quotaBonus -= 2500;
 
-        const totalCost = playedPenalty + partnerCost + deltaCost + spreadBonus + stdBonus + quotaBonus;
+        const totalCost =
+          playedPenalty + partnerCost + rematchPenalty + deltaCost + spreadBonus + stdBonus + quotaBonus;
+
         if (totalCost < bestCost) {
           bestCost = totalCost;
           bestCand = cand;
@@ -694,17 +726,31 @@ export function runContinuousMatchmaking(
       }
 
       if (bestCand) {
-        scheduledList.push(bestCand);
+        scheduledList.push({
+          ...bestCand,
+          roundNumber: currentRound,
+          courtNumber: c + 1,
+        });
         if (bestCand.type === 'MENS_DOUBLE') scheduledMens++;
         if (bestCand.type === 'WOMENS_DOUBLE') scheduledWomens++;
+
         bestCand.playerIds.forEach((id) => {
           roundPlayers.add(id);
           playedCount.set(id, playedCount.get(id)! + 1);
         });
+
         partnerCount.set(bestCand.pairAKey, (partnerCount.get(bestCand.pairAKey) || 0) + 1);
         partnerCount.set(bestCand.pairBKey, (partnerCount.get(bestCand.pairBKey) || 0) + 1);
+
+        const matchupKey = [bestCand.pairAKey, bestCand.pairBKey].sort().join('__vs__');
+        opponentMatchupCount.set(matchupKey, (opponentMatchupCount.get(matchupKey) || 0) + 1);
+      } else {
+        // If court cannot find a disjoint candidate with delta <= 1, proceed to next round
+        break;
       }
     }
+
+    currentRound++;
   }
 
   // 3. Assemble matches, rounds, and phases
@@ -713,8 +759,8 @@ export function runContinuousMatchmaking(
   const seenPairings = new Set<string>();
 
   scheduledList.forEach((c, idx) => {
-    const roundNumber = Math.floor(idx / courtCount) + 1;
-    const courtNumber = (idx % courtCount) + 1;
+    const roundNumber = c.roundNumber || Math.floor(idx / courtCount) + 1;
+    const courtNumber = c.courtNumber || (idx % courtCount) + 1;
     const matchId = `match_mixer_${idx + 1}`;
 
     const matchTypeLabel =
@@ -735,6 +781,7 @@ export function runContinuousMatchmaking(
     const scoreB = isRematch ? c.scoreA : c.scoreB;
 
     const phaseNote = isRematch ? ' (Lượt về)' : '';
+    const lockedNote = c.lockedPairName ? `⭐ Cặp cố định: ${c.lockedPairName}` : undefined;
 
     const m: Match = {
       matchId,
@@ -750,6 +797,7 @@ export function runContinuousMatchmaking(
       courtNumber,
       status: 'SCHEDULED',
       stage: 'ROUND_ROBIN',
+      notes: lockedNote,
     };
 
     matches.push(m);
@@ -1031,6 +1079,7 @@ export interface RescheduleOptions {
   activePlayerIds: string[]; // IDs of players who remain active from match cutoffMatchNumber+1 onwards
   targetTotalMatches?: number;
   courtCount?: number;
+  lockedPairs?: LockedPair[];
 }
 
 /**
@@ -1131,6 +1180,26 @@ export function rescheduleRemainingMatches(options: RescheduleOptions): Matchmak
   let candIdGen = 0;
   const N = activePlayers.length;
 
+  const lockedPairs = options.lockedPairs || [];
+  const isValidForLockedPairs = (pairA: [Player, Player], pairB: [Player, Player]): boolean => {
+    if (lockedPairs.length === 0) return true;
+    const matchIds = [pairA[0].id, pairA[1].id, pairB[0].id, pairB[1].id];
+    for (const lp of lockedPairs) {
+      const hasP1 = matchIds.includes(lp.player1Id);
+      const hasP2 = matchIds.includes(lp.player2Id);
+      if (!hasP1 && !hasP2) continue;
+      if (hasP1 !== hasP2) return false;
+      const inA =
+        (pairA[0].id === lp.player1Id && pairA[1].id === lp.player2Id) ||
+        (pairA[0].id === lp.player2Id && pairA[1].id === lp.player1Id);
+      const inB =
+        (pairB[0].id === lp.player1Id && pairB[1].id === lp.player2Id) ||
+        (pairB[0].id === lp.player2Id && pairB[1].id === lp.player1Id);
+      if (!inA && !inB) return false;
+    }
+    return true;
+  };
+
   for (let i = 0; i < N; i++) {
     for (let j = i + 1; j < N; j++) {
       for (let k = j + 1; k < N; k++) {
@@ -1143,6 +1212,7 @@ export function rescheduleRemainingMatches(options: RescheduleOptions): Matchmak
           ];
 
           for (const [pairA, pairB] of configs) {
+            if (!isValidForLockedPairs(pairA, pairB)) continue;
             const aGenders = [pairA[0].gender, pairA[1].gender].sort().join('');
             const bGenders = [pairB[0].gender, pairB[1].gender].sort().join('');
 

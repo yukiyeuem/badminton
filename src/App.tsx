@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Player, Match, MatchmakingResult } from './types/badminton';
+import { Player, Match, MatchmakingResult, LockedPair } from './types/badminton';
 import {
   createStandardTestPlayers,
   createEightMalePlayers,
@@ -40,6 +40,7 @@ export default function App() {
   const [isSessionConfigOpen, setIsSessionConfigOpen] = useState<boolean>(false);
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState<boolean>(false);
   const [rescheduleCutoffMatch, setRescheduleCutoffMatch] = useState<number | undefined>(undefined);
+  const [lockedPairs, setLockedPairs] = useState<LockedPair[]>([]);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
@@ -51,11 +52,16 @@ export default function App() {
   const executeMatchmaking = (
     playerList: Player[],
     matchTarget: number = targetTotalMatches,
-    mode: 'CONTINUOUS_MIXER' | 'PROGRESSIVE_PLAYOFF' = sessionMode
+    mode: 'CONTINUOUS_MIXER' | 'PROGRESSIVE_PLAYOFF' = sessionMode,
+    activeLocks: LockedPair[] = lockedPairs
   ) => {
-    // If CONTINUOUS_MIXER or 8 players 6 matches or custom mixer without forced brackets
-    if (mode === 'CONTINUOUS_MIXER' || (playerList.length <= 8 && mode !== 'PROGRESSIVE_PLAYOFF')) {
-      const res = runContinuousMatchmaking(playerList, matchTarget);
+    // If CONTINUOUS_MIXER or 8 players 6 matches or custom mixer or active locked pairs
+    if (
+      mode === 'CONTINUOUS_MIXER' ||
+      activeLocks.length > 0 ||
+      (playerList.length <= 8 && mode !== 'PROGRESSIVE_PLAYOFF')
+    ) {
+      const res = runContinuousMatchmaking(playerList, matchTarget, { lockedPairs: activeLocks });
       setMatchResult(res);
       setMatches(res.matches);
       setPlayers(res.updatedPlayers);
@@ -222,6 +228,35 @@ export default function App() {
     setActiveTab('schedule');
   };
 
+  const handleApplyLockedPairSchedule = (
+    newMatches: Match[],
+    updatedPlayers: Player[],
+    newTargetMatches: number,
+    newLockedPairs: LockedPair[]
+  ) => {
+    setLockedPairs(newLockedPairs);
+    setTargetTotalMatches(newTargetMatches);
+    setMatches(newMatches);
+    setPlayers(updatedPlayers);
+    setSessionMode('CONTINUOUS_MIXER');
+    showToast(
+      `Đã xếp thành công ${newMatches.length} trận với cặp cố định: ${newLockedPairs.map((lp) => lp.name).join(', ')} (100% Δ ≤ 1)!`
+    );
+    setActiveTab('schedule');
+    confetti({
+      particleCount: 80,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ['#10b981', '#38bdf8', '#fbbf24', '#a855f7'],
+    });
+  };
+
+  const handleClearLockedPairs = () => {
+    setLockedPairs([]);
+    executeMatchmaking(players, targetTotalMatches, sessionMode, []);
+    showToast('Đã hủy cấu hình cặp cố định. Trở về xếp trận tự do!');
+  };
+
   const handleUpdateMatchScore = (
     matchId: string,
     gameScoreA: number,
@@ -351,7 +386,11 @@ export default function App() {
         {activeTab === 'interteam' && (
           <InterTeamMatchmaker
             players={players}
+            targetTotalMatches={targetTotalMatches}
+            activeLockedPairs={lockedPairs}
             onScheduleFriendlyMatch={handleScheduleFriendlyMatch}
+            onApplyLockedPairSchedule={handleApplyLockedPairSchedule}
+            onClearLockedPairs={handleClearLockedPairs}
           />
         )}
 
